@@ -20,7 +20,7 @@ internal static class AutomationTextInput
     /// <summary>Creates a stock TextBox whose native edits immediately reach its current owner.</summary>
     public static TextBoxElement TextBox(string value, Action<string> changed,
         string? placeholder = null, string? header = null) =>
-        TextBox(() => value, changed, placeholder, header);
+        BuildTextBox(() => value, changed, placeholder, header);
 
     /// <summary>
     /// Creates a stock TextBox bound to a lazy value reader: the owner's current
@@ -30,6 +30,10 @@ internal static class AutomationTextInput
     /// </summary>
     public static TextBoxElement TextBox(Func<string> value, Action<string> changed,
         string? placeholder = null, string? header = null) =>
+        BuildTextBox(value, changed, placeholder, header);
+
+    private static TextBoxElement BuildTextBox(Func<string> value, Action<string> changed,
+        string? placeholder, string? header) =>
         new TextBoxElement(PlaceholderText: placeholder) { Header = header }
             .Set(native => Apply(native, Microsoft.UI.Xaml.Controls.TextBox.TextProperty, value, changed))
             .OnUnmount(Release);
