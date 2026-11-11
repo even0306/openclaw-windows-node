@@ -1,0 +1,65 @@
+name: Build Fix Portable
+
+# Unofficial portable build for the fix/icon-font-fallback-1567 branch
+# (tray menu blank after extended uptime, #1567). Dispatch manually.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  portable-win-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Acquire Reactor packages
+        run: ./scripts/Initialize-ReactorPackages.ps1
+        shell: pwsh
+
+      - name: Publish portable payload (win-x64)
+        run: >
+          dotnet publish .\src\OpenClaw.Tray.WinUI\OpenClaw.Tray.WinUI.csproj
+          -c Release -r win-x64 --self-contained -o publish-fix-x64 -v:minimal
+          -p:DevBuild=false -p:RequireSignedCleanupHost=false
+          -p:Version=2026.11.1
+          -p:InformationalVersion=2026.11.1+fix.icon-font-fallback-1567
+        shell: pwsh
+
+      - name: Verify payload
+        run: |
+          if (-not (Test-Path publish-fix-x64\OpenClaw.Tray.WinUI.exe)) { throw 'missing OpenClaw.Tray.WinUI.exe' }
+          $id = (Get-Content publish-fix-x64\app-identity.txt -Raw).Trim()
+          if ($id -ne 'release') { throw "unexpected payload identity '$id'" }
+          Write-Host "payload ok: release identity, $(Get-ChildItem publish-fix-x64 | Measure-Object -Property Length -Sum | ForEach-Object { [math]::Round($_.Sum/1MB) }) MB"
+        shell: pwsh
+
+      - name: Zip payload
+        run: Compress-Archive -Path publish-fix-x64\* -DestinationPath OpenClawTray-portable-fix1567-win-x64.zip
+        shell: pwsh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenClawTray-portable-fix1567-win-x64
+          path: OpenClawTray-portable-fix1567-win-x64.zip
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = 'fix1567-portable-2026.11.1'
+          $notes = 'Unofficial build of OpenClaw.Tray.WinUI 2026.11.1 from branch fix/icon-font-fallback-1567 (even0306/openclaw-windows-node). Fixes the tray menu rendering empty after extended uptime (openclaw/openclaw-windows-node#1567): icon font resolution now falls back and warns instead of failing silently. Self-contained portable payload (win-x64) — unzip and run OpenClaw.Tray.WinUI.exe, or unzip over an existing portable install to patch it. Not affiliated with or endorsed by the upstream project.'
+          if (gh release view $tag 2>$null) {
+            gh release upload $tag OpenClawTray-portable-fix1567-win-x64.zip --clobber
+          } else {
+            gh release create $tag OpenClawTray-portable-fix1567-win-x64.zip --prerelease --title 'Unofficial patched build: tray menu blank fix (#1567)' --notes $notes
+          }
+        shell: pwsh
