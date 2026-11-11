@@ -20,6 +20,16 @@ internal static class AutomationTextInput
     /// <summary>Creates a stock TextBox whose native edits immediately reach its current owner.</summary>
     public static TextBoxElement TextBox(string value, Action<string> changed,
         string? placeholder = null, string? header = null) =>
+        TextBox(() => value, changed, placeholder, header);
+
+    /// <summary>
+    /// Creates a stock TextBox bound to a lazy value reader: the owner's current
+    /// value is read when Reactor applies the binding, not when the element is
+    /// constructed. A render captured before a native edit therefore cannot
+    /// write its stale value back over the edit and reset the caret.
+    /// </summary>
+    public static TextBoxElement TextBox(Func<string> value, Action<string> changed,
+        string? placeholder = null, string? header = null) =>
         new TextBoxElement(PlaceholderText: placeholder) { Header = header }
             .Set(native => Apply(native, Microsoft.UI.Xaml.Controls.TextBox.TextProperty, value, changed))
             .OnUnmount(Release);
@@ -27,10 +37,10 @@ internal static class AutomationTextInput
     /// <summary>Creates a stock suggestion input; query and suggestion actions retain native semantics.</summary>
     public static AutoSuggestBoxElement AutoSuggestBox(string value, Action<string> changed) =>
         new AutoSuggestBoxElement(OnQuerySubmitted: changed, OnSuggestionChosen: changed)
-            .Set(native => Apply(native, Microsoft.UI.Xaml.Controls.AutoSuggestBox.TextProperty, value, changed))
+            .Set(native => Apply(native, Microsoft.UI.Xaml.Controls.AutoSuggestBox.TextProperty, () => value, changed))
             .OnUnmount(Release);
 
-    private static void Apply(FrameworkElement control, DependencyProperty property, string value, Action<string> changed)
+    private static void Apply(FrameworkElement control, DependencyProperty property, Func<string> valueOf, Action<string> changed)
     {
         // Store on the native dependency object so a different WinRT wrapper sees the same binding.
         if (control.GetValue(BindingProperty) is not TextBinding binding)
@@ -38,7 +48,7 @@ internal static class AutomationTextInput
             binding = new TextBinding(control, property);
             control.SetValue(BindingProperty, binding);
         }
-        binding.Update(value, changed);
+        binding.Update(valueOf(), changed);
     }
 
     private static void Release(FrameworkElement control)
@@ -77,9 +87,27 @@ internal static class AutomationTextInput
             try
             {
                 if (!string.Equals((string)_control.GetValue(_property), value, StringComparison.Ordinal))
-                    _control.SetValue(_property, value);
+                    WritePreservingCaret(value);
             }
             finally { _writing = false; }
+        }
+
+        // A programmatic Text write resets the TextBox caret to the first column.
+        // Preserve the selection (clamped) so an owner-driven write never yanks
+        // the caret away from where the user is typing.
+        private void WritePreservingCaret(string value)
+        {
+            if (_control is not Microsoft.UI.Xaml.Controls.TextBox textBox)
+            {
+                _control.SetValue(_property, value);
+                return;
+            }
+            var start = textBox.SelectionStart;
+            var length = textBox.SelectionLength;
+            _control.SetValue(_property, value);
+            var clampedStart = Math.Clamp(start, 0, value.Length);
+            textBox.SelectionStart = clampedStart;
+            textBox.SelectionLength = Math.Clamp(length, 0, value.Length - clampedStart);
         }
 
         private void Changed(DependencyObject sender, DependencyProperty property)
