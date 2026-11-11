@@ -104,7 +104,6 @@ internal sealed class ReactorChatComposer : Component<ReactorChatComposerViewPro
             return static () => { };
         }), props.InputSnapshot, inputs.CurrentThread, inputs.ModelCatalogRevision, inputs.ShowPlacementPickers, inputs.PlacementTargetIsEmpty, inputs.IsVisible);
 
-        var text = vm.Draft;
         var isSending = vm.IsSending;
         var isRecording = vm.IsRecording;
         var slashDisplay = vm.SlashDisplay;
@@ -429,8 +428,8 @@ internal sealed class ReactorChatComposer : Component<ReactorChatComposerViewPro
         }
 
         var transparentInputBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-        var input = TextBox(
-                text,
+        var input = OpenClawTray.Automations.AutomationTextInput.TextBox(
+                () => vm.Draft,
                 vm.SetDraft,
                 PlaceholderFor(inputs.ConnectionState))
             .AutomationId("ChatComposerInput")
