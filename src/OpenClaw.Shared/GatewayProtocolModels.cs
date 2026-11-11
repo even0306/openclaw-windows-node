@@ -294,6 +294,13 @@ public sealed class SessionPatch
     public PatchField<bool> Unread { get; set; }
     public PatchField<bool> Archived { get; set; }
     /// <summary>
+    /// Optimistic-concurrency identity guard required by gateway 2026.11.1+ for
+    /// session lifecycle patches (<c>archived</c>, <c>snoozedUntil</c>,
+    /// <c>sidebarRoot</c>): the patch is rejected unless it carries the session's
+    /// current <c>sessionId</c>. Not a mutation: not part of <see cref="HasChanges"/>.
+    /// </summary>
+    public PatchField<string> ExpectedSessionId { get; set; }
+    /// <summary>
     /// Optimistic-concurrency guard for <c>unread:false</c> acknowledgement, not a
     /// mutation: the gateway rejects the patch when the session was marked unread
     /// again after <c>markedUnreadAt</c>. Only valid as the only change.
@@ -341,6 +348,7 @@ public sealed class SessionPatch
         AddEncoded(payload, "unread", Unread, v => v);
         AddEncoded(payload, "archived", Archived, v => v);
         AddEncoded(payload, "expectedMarkedUnreadAt", ExpectedMarkedUnreadAt, v => v);
+        AddString(payload, "expectedSessionId", ExpectedSessionId);
         return payload;
     }
 

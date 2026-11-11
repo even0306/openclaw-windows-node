@@ -368,3 +368,5 @@ visual-test-output/
 msix-validation-evidence/
 packaging-test-output/
 uninstall-validation-output/
+
+.mono/

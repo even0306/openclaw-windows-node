@@ -497,7 +497,7 @@ public sealed class InteractiveGatewayRuntime : IAsyncDisposable
     {
         GatewayScenario.ValidateProperties(p, method switch
         {
-            "sessions.patch" => ["key", "label", "pinned", "unread", "archived", "expectedMarkedUnreadAt", "model", "thinkingLevel"],
+            "sessions.patch" => ["key", "label", "pinned", "unread", "archived", "expectedMarkedUnreadAt", "expectedSessionId", "model", "thinkingLevel"],
             "sessions.reset" => ["key", "reason"],
             _ => ["key", "deleteTranscript"]
         });
@@ -512,6 +512,15 @@ public sealed class InteractiveGatewayRuntime : IAsyncDisposable
             foreach (var field in new[] { "label", "model", "thinkingLevel" })
                 if (p.TryGetProperty(field, out var value) && value.ValueKind != JsonValueKind.Null) _ = Required(p, field);
             if (key == GatewayScenario.MainSessionKey && Boolean(p, "archived") == true) throw Invalid("The main session cannot be archived.");
+            if (p.TryGetProperty("archived", out _))
+            {
+                // Gateway 2026.11.1+ lifecycle admission: archived patches require
+                // the session's current expectedSessionId.
+                if (Optional(p, "expectedSessionId") is not { } expectedSessionId)
+                    throw new FixtureRequestException("INVALID_PARAMS", "expectedSessionId required for session lifecycle patch: " + key);
+                if (expectedSessionId != row["sessionId"]!.GetValue<string>())
+                    throw new FixtureRequestException("UNAVAILABLE", "The session identity changed. Refresh before patching.");
+            }
             if (p.TryGetProperty("expectedMarkedUnreadAt", out var expected))
             {
                 if (Boolean(p, "unread") != false || p.EnumerateObject().Count() != 3

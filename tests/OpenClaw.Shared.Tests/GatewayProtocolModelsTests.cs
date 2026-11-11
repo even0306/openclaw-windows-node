@@ -606,7 +606,8 @@ public class GatewayProtocolModelsTests
             Pinned = true,
             Unread = true,
             Archived = true,
-            ExpectedMarkedUnreadAt = 1L
+            ExpectedMarkedUnreadAt = 1L,
+            ExpectedSessionId = "sid"
         };
 
         var keys = patch.ToPayload("agent:main").Keys.OrderBy(k => k).ToArray();
@@ -614,7 +615,7 @@ public class GatewayProtocolModelsTests
         var expected = new[]
         {
             "archived", "elevatedLevel", "execAsk", "execHost", "execNode", "execSecurity",
-            "expectedMarkedUnreadAt", "fastMode", "groupActivation", "key", "label", "model",
+            "expectedMarkedUnreadAt", "expectedSessionId", "fastMode", "groupActivation", "key", "label", "model",
             "pinned", "reasoningLevel", "responseUsage", "sendPolicy", "thinkingLevel",
             "traceLevel", "unread", "verboseLevel"
         }.OrderBy(k => k).ToArray();
