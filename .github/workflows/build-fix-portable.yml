@@ -1,10 +1,30 @@
 name: Build Fix Portable
 
-# Unofficial portable build for the fix/icon-font-fallback-1567 branch
-# (tray menu blank after extended uptime, #1567). Dispatch manually.
+# Unofficial portable build for fork fix branches. Dispatch manually.
 
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag'
+        required: true
+        default: 'session-groups-portable-2026.11.2'
+      zipName:
+        description: 'Zip file base name (without .zip)'
+        required: true
+        default: 'OpenClawTray-portable-session-groups-win-x64'
+      version:
+        description: 'Assembly / file version'
+        required: true
+        default: '2026.11.2'
+      releaseTitle:
+        description: 'Release title'
+        required: true
+        default: 'Unofficial build: sidebar session groups + move between groups'
+      releaseNotes:
+        description: 'Release notes'
+        required: true
+        default: 'Unofficial build of OpenClaw.Tray.WinUI from branch feat/session-groups (even0306/openclaw-windows-node). Adds custom sidebar session groups to the PC client: the workspace sidebar and the Sessions page group rows by their sidebar group, and the session context menus can move a session between groups, create a new group, or ungroup it (same gateway feature the web UI sidebar exposes). Self-contained portable payload (win-x64) — unzip and run OpenClaw.Tray.WinUI.exe, or unzip over an existing portable install to patch it. Not affiliated with or endorsed by the upstream project.'
 
 permissions:
   contents: write
@@ -14,6 +34,9 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # GitVersion needs the full history or MSB3073 fails.
+          fetch-depth: 0
 
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v6
@@ -29,8 +52,8 @@ jobs:
           dotnet publish .\src\OpenClaw.Tray.WinUI\OpenClaw.Tray.WinUI.csproj
           -c Release -r win-x64 --self-contained -o publish-fix-x64 -v:minimal
           -p:DevBuild=false -p:RequireSignedCleanupHost=false
-          -p:Version=2026.11.1
-          -p:InformationalVersion=2026.11.1+fix.icon-font-fallback-1567
+          -p:Version=${{ inputs.version }}
+          -p:InformationalVersion=${{ inputs.version }}+${{ github.ref_name }}
         shell: pwsh
 
       - name: Verify payload
@@ -42,24 +65,27 @@ jobs:
         shell: pwsh
 
       - name: Zip payload
-        run: Compress-Archive -Path publish-fix-x64\* -DestinationPath OpenClawTray-portable-fix1567-win-x64.zip
+        run: Compress-Archive -Path publish-fix-x64\* -DestinationPath ${{ inputs.zipName }}.zip
         shell: pwsh
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: OpenClawTray-portable-fix1567-win-x64
-          path: OpenClawTray-portable-fix1567-win-x64.zip
+          name: ${{ inputs.zipName }}
+          path: ${{ inputs.zipName }}.zip
 
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          ZIP_NAME: ${{ inputs.zipName }}
+          RELEASE_TITLE: ${{ inputs.releaseTitle }}
+          RELEASE_NOTES: ${{ inputs.releaseNotes }}
         run: |
-          $tag = 'fix1567-portable-2026.11.1'
-          $notes = 'Unofficial build of OpenClaw.Tray.WinUI 2026.11.1 from branch fix/icon-font-fallback-1567 (even0306/openclaw-windows-node). Fixes the tray menu rendering empty after extended uptime (openclaw/openclaw-windows-node#1567): icon font resolution now falls back and warns instead of failing silently. Self-contained portable payload (win-x64) — unzip and run OpenClaw.Tray.WinUI.exe, or unzip over an existing portable install to patch it. Not affiliated with or endorsed by the upstream project.'
-          if (gh release view $tag 2>$null) {
-            gh release upload $tag OpenClawTray-portable-fix1567-win-x64.zip --clobber
+          $zip = "$env:ZIP_NAME.zip"
+          if (gh release view $env:RELEASE_TAG 2>$null) {
+            gh release upload $env:RELEASE_TAG $zip --clobber
           } else {
-            gh release create $tag OpenClawTray-portable-fix1567-win-x64.zip --prerelease --title 'Unofficial patched build: tray menu blank fix (#1567)' --notes $notes
+            gh release create $env:RELEASE_TAG $zip --prerelease --title $env:RELEASE_TITLE --notes $env:RELEASE_NOTES
           }
         shell: pwsh
