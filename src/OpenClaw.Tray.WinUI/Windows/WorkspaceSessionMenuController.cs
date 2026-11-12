@@ -284,18 +284,7 @@ internal sealed class WorkspaceSessionMenuController
                 return;
             }
         }
-        if (info?.SessionId is not { Length: > 0 })
-        {
-            // Gateway 2026.11.1+ rejects lifecycle patches without expectedSessionId;
-            // without the identity there is no patch worth sending.
-            _showMessage("Session identity is still loading. Try again after sessions refresh.", InfoBarSeverity.Informational);
-            return;
-        }
-        await operation.PatchAsync(session.Key, new SessionPatch
-        {
-            Archived = !session.IsArchived,
-            ExpectedSessionId = info.SessionId,
-        });
+        await operation.PatchAsync(session.Key, new SessionPatch { Archived = !session.IsArchived });
         if (!session.IsArchived)
             _leaveSession(session.Key);
         await RefreshAsync(operation);

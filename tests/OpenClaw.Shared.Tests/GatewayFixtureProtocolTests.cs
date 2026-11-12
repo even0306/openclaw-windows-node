@@ -401,7 +401,7 @@ public sealed partial class GatewayFixtureProtocolTests
         var epoch = client.SessionMutationConnectionEpoch!.Value;
         server.HoldSessionMutations();
         var patch = client.PatchSessionConfirmedAsync(GatewayScenario.OtherSessionKey,
-            new SessionPatch { Archived = true, ExpectedSessionId = GatewayScenario.OtherSessionId }, epoch);
+            new SessionPatch { Archived = true }, epoch);
         await server.WaitForRequestAsync("sessions.patch", GatewayScenario.OtherSessionKey);
         // Drain an independent authenticated request while the mutation response is held.
         await client.SendWizardRequestAsync("health");

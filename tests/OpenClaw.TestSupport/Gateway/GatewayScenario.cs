@@ -18,8 +18,6 @@ public sealed partial class GatewayScenario
     public const string MainSessionKey = "agent:main:main";
     public const string LongSessionKey = "agent:main:fixture-long";
     public const string OtherSessionKey = "agent:research:fixture-other";
-    /// <summary>Session id of <see cref="OtherSessionKey"/> — deterministic per CreateSession (index 2).</summary>
-    public const string OtherSessionId = "00000000-0000-4000-8000-000000000003";
     public const string EmptySessionKey = "agent:main:fixture-empty";
     public const string EdgeSessionKey = "agent:research:fixture-edge";
     public const string MainTitle = "Fixture: main conversation";
@@ -759,7 +757,7 @@ public sealed partial class GatewayScenario
     {
         var delete = method == "sessions.delete";
         ValidateProperties(p, delete ? ["key", "deleteTranscript"] :
-            ["key", "label", "pinned", "unread", "archived", "expectedMarkedUnreadAt", "expectedSessionId"]);
+            ["key", "label", "pinned", "unread", "archived", "expectedMarkedUnreadAt"]);
         var key = RequiredString(p, "key");
         if (key == MainSessionKey && (delete || (OptionalBoolean(p, "archived") ?? false)))
             throw new FixtureRequestException("INVALID_PARAMS", "The main fixture session cannot be removed.");
@@ -773,15 +771,6 @@ public sealed partial class GatewayScenario
             {
                 _sessionChanges[key] = null;
                 return new { ok = true, key, deleted = true };
-            }
-            if (p.TryGetProperty("archived", out _))
-            {
-                // Gateway 2026.11.1+ lifecycle admission: archived patches require
-                // the session's current expectedSessionId.
-                if (OptionalString(p, "expectedSessionId") is not { } expectedSessionId)
-                    throw new FixtureRequestException("INVALID_PARAMS", "expectedSessionId required for session lifecycle patch: " + key);
-                if (expectedSessionId != row["sessionId"]?.GetValue<string>())
-                    throw new FixtureRequestException("UNAVAILABLE", "The session identity changed. Refresh before patching.");
             }
             foreach (var field in new[] { "label", "pinned", "unread", "archived" })
                 if (p.TryGetProperty(field, out var value))
