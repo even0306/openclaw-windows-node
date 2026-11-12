@@ -869,13 +869,9 @@ public sealed partial class WorkspaceWindow : WindowEx
             return header;
         header = new NavigationViewItemHeader
         {
-            Content = new TextBlock
-            {
-                Text = groupName,
-                Style = (Style)Application.Current.Resources["NavigationViewItemHeaderTextStyle"],
-                VerticalAlignment = VerticalAlignment.Center,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-            },
+            // The default template renders Content as a plain string
+            // (Text="{TemplateBinding Content}"); passing a TextBlock renders blank.
+            Content = groupName,
             IsEnabled = true,
         };
         AutomationProperties.SetAutomationId(header, $"WorkspaceSessionGroup:{groupName}");
@@ -895,6 +891,10 @@ public sealed partial class WorkspaceWindow : WindowEx
     internal static Grid BuildSessionContent(WorkspaceSession session)
     {
         var grid = new Grid { ColumnSpacing = 6 };
+        // Indent grouped rows so each one reads as belonging to the group
+        // header above it; ungrouped rows keep the native alignment.
+        if (session.Group is not null)
+            grid.Margin = new Thickness(16, 0, 0, 0);
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Auto) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Auto) });
