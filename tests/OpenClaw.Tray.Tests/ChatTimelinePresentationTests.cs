@@ -47,7 +47,7 @@ public sealed class ChatTimelinePresentationTests
     }
 
     [Fact]
-    public void ReactorTimeline_UsesNonSelectableItemsViewContainersAndAnnotatedScrollBar()
+    public void ReactorTimeline_UsesNonSelectableItemsViewContainersAndNativeScrollViewScrollBar()
     {
         var timeline = File.ReadAllText(Path.Combine(
             TestRepositoryPaths.GetRepositoryRoot(),
@@ -69,9 +69,12 @@ public sealed class ChatTimelinePresentationTests
         Assert.Contains("ItemContainerSelectedPointerOverBackground", timeline);
         Assert.Contains("ItemContainerSelectedPressedBackground", timeline);
         Assert.Contains("ItemContainerSelectionVisualPointerOverBackground", timeline);
-        Assert.Contains("AnnotatedScrollBar()", timeline);
-        Assert.Contains(".BindVerticalScrollController(", timeline);
-        Assert.Contains("annotatedScrollBarRef,", timeline);
+        // The conversation keeps the ItemsView's built-in ScrollView scrollbar
+        // (proportional, draggable thumb that reaches the ends). No external
+        // AnnotatedScrollBar replaces it.
+        Assert.DoesNotContain("AnnotatedScrollBar", timeline);
+        Assert.DoesNotContain("VerticalScrollController", timeline);
+        Assert.Contains(".BindTailPositioner(", timeline);
         Assert.Contains("rows.Count - 1", timeline);
         Assert.Contains("rows.Count,", timeline);
         Assert.Contains("jumpRevision,", timeline);
@@ -82,7 +85,7 @@ public sealed class ChatTimelinePresentationTests
     }
 
     [Fact]
-    public void ReactorTimeline_UsesReactiveAnnotatedScrollBarControllerBinding()
+    public void ReactorTimeline_UsesReactiveTailPositionerWithoutExternalScrollControllerBinding()
     {
         var binding = File.ReadAllText(Path.Combine(
             TestRepositoryPaths.GetRepositoryRoot(),
@@ -91,9 +94,12 @@ public sealed class ChatTimelinePresentationTests
             "Chat",
             "ReactorItemsViewScrollController.cs"));
 
-        Assert.Contains("context.BindFor(itemsView, element)", binding);
-        Assert.Contains("binding.Reference(", binding);
-        Assert.Contains("VerticalScrollController = scrollBar?.ScrollController", binding);
+        // The tail positioner decorates the ItemsView without replacing the
+        // built-in ScrollView scrollbar through an external scroll controller.
+        Assert.DoesNotContain("binding.Reference(", binding);
+        Assert.DoesNotContain("ScrollBarRef", binding);
+        Assert.DoesNotContain(".ScrollController", binding);
+        Assert.Contains("BindPositioner(itemsView, newElement)", binding);
         Assert.Contains("explicitJump: false", binding);
         Assert.Contains("oldElement.JumpRevision != newElement.JumpRevision", binding);
         Assert.DoesNotContain(".Current", binding);

@@ -7,15 +7,13 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.Foundation;
-using WinUIAnnotatedScrollBar = Microsoft.UI.Xaml.Controls.AnnotatedScrollBar;
 using WinUIItemsView = Microsoft.UI.Xaml.Controls.ItemsView;
 using WinUIScrollView = Microsoft.UI.Xaml.Controls.ScrollView;
 
 namespace OpenClawTray.Chat;
 
-file sealed record ItemsViewVerticalScrollControllerElement(
+file sealed record ItemsViewTailPositionerElement(
     Element Child,
-    ElementRef<WinUIAnnotatedScrollBar> ScrollBarRef,
     int InitialTailIndex,
     int ItemCount,
     int JumpRevision,
@@ -23,38 +21,35 @@ file sealed record ItemsViewVerticalScrollControllerElement(
     string? DisplayedTailKey,
     Action<bool>? TailVisibilityChanged) : Element
 {
-    static ItemsViewVerticalScrollControllerElement() =>
-        ControlRegistry.RegisterDecorator<ItemsViewVerticalScrollControllerElement>(
-            static () => new ItemsViewVerticalScrollControllerHandler());
+    static ItemsViewTailPositionerElement() =>
+        ControlRegistry.RegisterDecorator<ItemsViewTailPositionerElement>(
+            static () => new ItemsViewTailPositionerHandler());
 }
 
-file sealed class ItemsViewVerticalScrollControllerHandler
-    : IDecoratorElementHandler<ItemsViewVerticalScrollControllerElement>
+file sealed class ItemsViewTailPositionerHandler
+    : IDecoratorElementHandler<ItemsViewTailPositionerElement>
 {
     // Keep ownership on the native control, not on a particular managed projection.
     private static readonly DependencyProperty PositionerProperty = DependencyProperty.RegisterAttached(
-        "ChatTailPositioner", typeof(object), typeof(ItemsViewVerticalScrollControllerHandler), new PropertyMetadata(null));
+        "ChatTailPositioner", typeof(object), typeof(ItemsViewTailPositionerHandler), new PropertyMetadata(null));
 
-    public UIElement Mount(MountContext context, ItemsViewVerticalScrollControllerElement element)
+    public UIElement Mount(MountContext context, ItemsViewTailPositionerElement element)
     {
         var control = context.MountChild(element.Child);
         if (control is not WinUIItemsView itemsView)
-            throw new InvalidOperationException("ItemsView scroll controller binding requires an ItemsView child.");
+            throw new InvalidOperationException("ItemsView tail positioner requires an ItemsView child.");
 
-        BindPositioner(itemsView, element, context.BindFor(itemsView, element));
+        BindPositioner(itemsView, element);
         return itemsView;
     }
 
     private static InitialTailPositioner BindPositioner(
         WinUIItemsView itemsView,
-        ItemsViewVerticalScrollControllerElement element,
-        ReactorBinding<ItemsViewVerticalScrollControllerElement> binding)
+        ItemsViewTailPositionerElement element)
     {
         (itemsView.GetValue(PositionerProperty) as InitialTailPositioner)?.Dispose();
-        binding.Reference(
-            get: static value => value.ScrollBarRef,
-            set: static (value, scrollBar) =>
-                ((WinUIItemsView)value).VerticalScrollController = scrollBar?.ScrollController);
+        // The ItemsView keeps its built-in ScrollView scrollbar: a proportional,
+        // draggable WinUI ScrollBar. No external scroll controller replaces it.
         var positioner = new InitialTailPositioner(itemsView);
         positioner.TailVisibilityChanged = element.TailVisibilityChanged;
         itemsView.SetValue(PositionerProperty, positioner);
@@ -69,14 +64,14 @@ file sealed class ItemsViewVerticalScrollControllerHandler
 
     public UIElement Update(
         UpdateContext context,
-        ItemsViewVerticalScrollControllerElement oldElement,
-        ItemsViewVerticalScrollControllerElement newElement,
+        ItemsViewTailPositionerElement oldElement,
+        ItemsViewTailPositionerElement newElement,
         UIElement control)
     {
         var previousPositioner = control.GetValue(PositionerProperty) as InitialTailPositioner;
         var updated = context.ReconcileChild(oldElement.Child, newElement.Child, control);
         if (updated is not WinUIItemsView itemsView)
-            throw new InvalidOperationException("ItemsView scroll controller binding requires an ItemsView child.");
+            throw new InvalidOperationException("ItemsView tail positioner requires an ItemsView child.");
         var positioner = itemsView.GetValue(PositionerProperty) as InitialTailPositioner;
         if (previousPositioner is not null && !ReferenceEquals(previousPositioner, positioner))
         {
@@ -85,7 +80,7 @@ file sealed class ItemsViewVerticalScrollControllerHandler
             previousPositioner.Dispose();
         }
         if (positioner is null)
-            BindPositioner(itemsView, newElement, context.BindFor(itemsView, newElement));
+            BindPositioner(itemsView, newElement);
         else
         {
             positioner.TailVisibilityChanged = newElement.TailVisibilityChanged;
@@ -105,7 +100,7 @@ file sealed class ItemsViewVerticalScrollControllerHandler
         return itemsView;
     }
 
-    public V1UnmountDisposition Unmount(UnmountContext context, ItemsViewVerticalScrollControllerElement? element, UIElement control)
+    public V1UnmountDisposition Unmount(UnmountContext context, ItemsViewTailPositionerElement? element, UIElement control)
     {
         if (control.GetValue(PositionerProperty) is InitialTailPositioner positioner)
         {
@@ -1008,18 +1003,16 @@ file sealed class InitialTailPositioner : IDisposable
 
 internal static class ItemsViewScrollControllerExtensions
 {
-    public static Element BindVerticalScrollController<T>(
+    public static Element BindTailPositioner<T>(
         this ItemsViewElement<T> itemsView,
-        ElementRef<WinUIAnnotatedScrollBar> scrollBarRef,
         int initialTailIndex,
         int itemCount,
         int jumpRevision,
         string initialTailRequestKey,
         string? displayedTailKey,
         Action<bool>? tailVisibilityChanged = null) =>
-        new ItemsViewVerticalScrollControllerElement(
+        new ItemsViewTailPositionerElement(
             itemsView,
-            scrollBarRef,
             initialTailIndex,
             itemCount,
             jumpRevision,

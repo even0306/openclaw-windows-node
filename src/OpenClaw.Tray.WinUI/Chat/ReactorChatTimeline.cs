@@ -16,7 +16,6 @@ using OpenClawTray.Helpers;
 using System.Text.Json.Nodes;
 using Windows.UI;
 using static Microsoft.UI.Reactor.Factories;
-using WinUIAnnotatedScrollBar = Microsoft.UI.Xaml.Controls.AnnotatedScrollBar;
 
 namespace OpenClawTray.Chat;
 
@@ -61,7 +60,6 @@ public sealed class ReactorChatTimeline : Component<ReactorChatTimelineProps>
         var hoverTarget = UseRef<string?>(null);
         var (focusedEntryKey, setFocusedEntryKey) = UseState<string?>(null);
         var (viewportWidth, setViewportWidth) = UseState(800d);
-        var (navigationVisible, setNavigationVisible) = UseState(false);
         var (atTail, setAtTail) = UseState(true);
         var (jumpRevision, setJumpRevision) = UseState(0);
         var (loadingOlder, setLoadingOlder) = UseState(false, threadSafe: true);
@@ -83,7 +81,6 @@ public sealed class ReactorChatTimeline : Component<ReactorChatTimelineProps>
         var mounted = UseRef(true);
         var toolActivityExpansionState = UseRef<ChatToolActivityExpansionState>(new());
         var toolActivityMotionState = UseRef<ChatToolActivityMotionState>(new());
-        var annotatedScrollBarRef = this.UseElementRef<WinUIAnnotatedScrollBar>();
         // Web's history skeleton is static under reduced motion or forced colors.
         var animateLoading = !UseReducedMotion() && UseColorScheme() != ColorScheme.HighContrast;
         var loadingPulse = UseRef<FrameworkElement?>(null);
@@ -261,8 +258,7 @@ public sealed class ReactorChatTimeline : Component<ReactorChatTimelineProps>
             [GridSize.Star()],
             [GridSize.Auto, GridSize.Star(), GridSize.Auto],
             itemsView
-                .BindVerticalScrollController(
-                    annotatedScrollBarRef,
+                .BindTailPositioner(
                     rows.Count - 1,
                     rows.Count,
                     jumpRevision,
@@ -274,16 +270,6 @@ public sealed class ReactorChatTimeline : Component<ReactorChatTimelineProps>
                 .AutomationName("Chat messages")
                 .HAlign(HorizontalAlignment.Stretch)
                 .VAlign(VerticalAlignment.Stretch),
-            AnnotatedScrollBar()
-                .Ref(annotatedScrollBarRef)
-                .Width(ChatVisuals.RailWidth(viewportWidth))
-                .MinWidth(0)
-                .Opacity(navigationVisible ? 1 : 0)
-                .OnGotFocus((_, _) => setNavigationVisible(true))
-                .OnLostFocus((_, _) => setNavigationVisible(false))
-                .Grid(row: 1, column: 0)
-                .HAlign(HorizontalAlignment.Right)
-                .AutomationName("Chat message navigation"),
             (props.HistoryFailed && props.Mode == ReactorChatTimelineMode.Timeline
                     ? BuildHistoryFailedBanner(props, viewportWidth)
                     : Empty())
@@ -332,8 +318,6 @@ public sealed class ReactorChatTimeline : Component<ReactorChatTimelineProps>
                 .Margin(ChatVisuals.Gutter(viewportWidth), 0).Grid(row: 2, column: 0))
             .HAlign(HorizontalAlignment.Stretch)
             .VAlign(VerticalAlignment.Stretch)
-            .OnPointerEntered((_, _) => setNavigationVisible(true))
-            .OnPointerExited((_, _) => setNavigationVisible(false))
             .OnMount(control => ChatVisuals.Observe(control, setViewportWidth))
             .OnUnmount(ChatVisuals.StopObserving);
     }

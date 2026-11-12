@@ -1631,10 +1631,12 @@ public sealed partial class ReactorChatLayoutProofTests(UIThreadFixture ui)
             });
             await ui.RunOnUIAsync(() =>
             {
-                var rail = Assert.Single(FindDescendants<AnnotatedScrollBar>(host));
-                // A native rail with no scroll range need not accept focus.
-                // Exercise its visible geometry independently of that range.
-                rail.Opacity = 1;
+                var railItemsView = Assert.Single(FindDescendants<ItemsView>(host));
+                // The conversation keeps the ItemsView's built-in ScrollView scrollbar:
+                // a proportional, draggable WinUI ScrollBar.
+                var rail = Assert.Single(
+                    FindDescendants<ScrollBar>(railItemsView),
+                    bar => bar.Orientation == Orientation.Vertical);
                 AssertComposerBounds(surface);
                 AssertRailClearance(surface, host, rail);
                 var input = FindControl<TextBox>(surface, "ChatComposerInput");
@@ -3312,14 +3314,19 @@ public sealed partial class ReactorChatLayoutProofTests(UIThreadFixture ui)
         Assert.InRange(Math.Abs(proseBounds.Left + proseBounds.Width / 2 - surface.ActualWidth / 2), 0, 1);
     }
 
-    private static void AssertRailClearance(Border surface, ReactorHostControl host, AnnotatedScrollBar rail)
+    private static void AssertRailClearance(Border surface, ReactorHostControl host, ScrollBar rail)
     {
         var railBounds = Bounds(rail, surface);
+        // Without overflow the built-in rail is collapsed; keep the historical
+        // clearance zone so copy targets never sit under the scrollbar column.
+        var railLeft = railBounds.Width > 0
+            ? railBounds.Left
+            : surface.ActualWidth - ChatVisuals.RailWidth(surface.ActualWidth);
         foreach (var button in FindDescendants<Button>(host).Where(button =>
             AutomationProperties.GetAutomationId(button).StartsWith("ChatCopy_", StringComparison.Ordinal)
             && Ancestors(button).Any(parent => parent is ItemsView)))
-            Assert.True(Bounds(button, surface).Right <= railBounds.Left - 3,
-                $"Copy target {Bounds(button, surface)} overlaps navigation {railBounds}");
+            Assert.True(Bounds(button, surface).Right <= railLeft - 3,
+                $"Copy target {Bounds(button, surface)} overlaps navigation rail at {railLeft}");
     }
 
     private static void AssertComposerBounds(Border surface)
