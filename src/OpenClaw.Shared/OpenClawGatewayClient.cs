@@ -1935,6 +1935,117 @@ public partial class OpenClawGatewayClient : WebSocketClientBase, IOperatorGatew
         }
     }
 
+    /// <summary>
+    /// Reads the shared sidebar entries order from <c>ui.prefs.sidebarEntries</c>
+    /// (the web UI's server-side order store). Failures degrade to an empty list.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> RequestSidebarEntriesAsync(int timeoutMs = 15000)
+    {
+        if (_operatorReadScopeUnavailable) return Array.Empty<string>();
+        try
+        {
+            var payload = await SendWizardRequestAsync("config.get", new { }, timeoutMs);
+            return ParseSidebarEntries(payload);
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn($"config.get (sidebarEntries) failed: {ex.Message}");
+            return Array.Empty<string>();
+        }
+    }
+
+    internal static IReadOnlyList<string> ParseSidebarEntries(JsonElement payload)
+    {
+        if (!TryGetUiPrefs(payload, out var prefs))
+        return Array.Empty<string>();
+        if (!prefs.TryGetProperty("sidebarEntries", out var entries)
+            && !prefs.TryGetProperty("railShortcuts", out entries))
+            return Array.Empty<string>();
+        if (entries.ValueKind != JsonValueKind.Array)
+            return Array.Empty<string>();
+        var result = new List<string>(entries.GetArrayLength());
+        for (var i = 0; i < entries.GetArrayLength(); i++)
+            if (entries[i].ValueKind == JsonValueKind.String && entries[i].GetString() is { Length: > 0 } entry)
+                result.Add(entry);
+        return result;
+    }
+
+    private static bool TryGetUiPrefs(JsonElement payload, out JsonElement prefs)
+    {
+        prefs = default;
+        JsonDocument? document = null;
+        try
+        {
+            JsonElement root;
+            if (payload.ValueKind == JsonValueKind.Object
+                && payload.TryGetProperty("raw", out var raw)
+                && raw.ValueKind == JsonValueKind.String
+                && raw.GetString() is { Length: > 0 } json)
+            {
+                document = JsonDocument.Parse(json);
+                root = document.RootElement;
+            }
+            else
+            {
+                root = payload.ValueKind == JsonValueKind.Object
+                    && payload.TryGetProperty("config", out var config)
+                    && config.ValueKind == JsonValueKind.Object
+                        ? config
+                        : payload;
+            }
+            if (root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("ui", out var ui)
+                && ui.ValueKind == JsonValueKind.Object
+                && ui.TryGetProperty("prefs", out var found)
+                && found.ValueKind == JsonValueKind.Object)
+            {
+                prefs = found.Clone();
+                return true;
+            }
+            return false;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+        finally
+        {
+            document?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Writes the shared sidebar entries order to <c>ui.prefs</c> with the web
+    /// UI's exact batch shape (new list, merge base, order-change flag) so every
+    /// client reconciles against the same server-side protocol.
+    /// </summary>
+    public async Task<bool> PatchSidebarEntriesAsync(
+        IReadOnlyList<string> entries, IReadOnlyList<string> previousEntries, int timeoutMs = 15000)
+    {
+        try
+        {
+            var raw = JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                ["ui"] = new Dictionary<string, object?>
+                {
+                    ["prefs"] = new Dictionary<string, object?>
+                    {
+                        ["sidebarEntries"] = entries,
+                        ["sidebarEntriesBase"] = previousEntries,
+                        ["sidebarEntriesOrder"] = true,
+                    },
+                },
+            });
+            await SendWizardRequestAsync("config.patch", new { raw, note = "control-ui prefs sync" }, timeoutMs);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn($"config.patch (sidebarEntries) failed: {ex.Message}");
+            return false;
+        }
+    }
+
     /// <summary>Request usage/context info from gateway (may not be supported on all gateways).</summary>
     public async Task RequestUsageAsync()
     {

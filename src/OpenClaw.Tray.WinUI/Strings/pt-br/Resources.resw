@@ -7133,6 +7133,7 @@ Após a inscrição, volte para Configurações &gt; Windows Update e verifique 
   <data name="WorkspaceShell_SessionMenu_MoveToGroup" xml:space="preserve"><value>Mover para um grupo</value></data>
   <data name="WorkspaceShell_SessionMenu_MoveToGroupNew" xml:space="preserve"><value>Novo grupo…</value></data>
   <data name="WorkspaceShell_SessionMenu_MoveToUngroup" xml:space="preserve"><value>Desagrupar</value></data>
+  <data name="WorkspaceShell_SessionMenu_Unorder" xml:space="preserve"><value>Remover da lista ordenada</value></data>
   <data name="WorkspaceShell_SessionMoveGroup_Title" xml:space="preserve"><value>Mover para um novo grupo</value></data>
   <data name="WorkspaceShell_SessionMoveGroup_Body" xml:space="preserve"><value>Nomeie o grupo para mover esta sessão. Um novo nome cria o grupo.</value></data>
   <data name="WorkspaceShell_SessionMoveGroup_Save" xml:space="preserve"><value>Mover</value></data>

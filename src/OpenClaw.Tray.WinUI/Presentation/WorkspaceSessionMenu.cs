@@ -13,6 +13,7 @@ internal enum WorkspaceSessionMenuAction
     MoveToGroup,
     MoveToUngroup,
     NewGroup,
+    Unorder,
     Fork,
     CopyKey,
     CopySessionId,
@@ -211,6 +212,8 @@ internal static class WorkspaceSessionMenu
             WorkspaceSessionMenuAction.NewGroup, IsEnabled: gw));
         children.Add(new(WorkspaceSessionMenuEntryKind.Item, "SessionMenu_MoveToUngroup",
             WorkspaceSessionMenuAction.MoveToUngroup, IsEnabled: gw && current is not null));
+        children.Add(new(WorkspaceSessionMenuEntryKind.Item, "SessionMenu_Unorder",
+            WorkspaceSessionMenuAction.Unorder, IsEnabled: gw));
         return new(WorkspaceSessionMenuEntryKind.SubMenu, "SessionMenu_MoveToGroup",
             WorkspaceSessionMenuAction.MoveToGroup, WorkspaceSessionMenuIcon.Group, "G",
             Children: children);

@@ -7080,6 +7080,7 @@
   <data name="WorkspaceShell_SessionMenu_MoveToGroup" xml:space="preserve"><value>移動到分組</value></data>
   <data name="WorkspaceShell_SessionMenu_MoveToGroupNew" xml:space="preserve"><value>新增分組…</value></data>
   <data name="WorkspaceShell_SessionMenu_MoveToUngroup" xml:space="preserve"><value>取消分組</value></data>
+  <data name="WorkspaceShell_SessionMenu_Unorder" xml:space="preserve"><value>移出排序清單</value></data>
   <data name="WorkspaceShell_SessionMoveGroup_Title" xml:space="preserve"><value>移動到新分組</value></data>
   <data name="WorkspaceShell_SessionMoveGroup_Body" xml:space="preserve"><value>輸入要將此工作階段移入的分組名稱，新名稱會自動建立分組。</value></data>
   <data name="WorkspaceShell_SessionMoveGroup_Save" xml:space="preserve"><value>移動</value></data>

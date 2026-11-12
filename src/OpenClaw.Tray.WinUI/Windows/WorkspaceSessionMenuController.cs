@@ -261,6 +261,9 @@ internal sealed class WorkspaceSessionMenuController
             case WorkspaceSessionMenuAction.NewGroup:
                 await NewGroupAsync(operation!, session);
                 break;
+            case WorkspaceSessionMenuAction.Unorder:
+                await UnorderAsync(operation!, session);
+                break;
             case WorkspaceSessionMenuAction.Fork:
                 await _forkSession(WorkspaceSessionMenu.ForkRequest(
                     info ?? new SessionInfo { Key = session.Key }));
@@ -460,6 +463,17 @@ internal sealed class WorkspaceSessionMenuController
             // the sidebar regrouping until the next sessions refresh.
             new AppLogger().Warn($"[Workspace] Session group refresh failed ({ex.GetType().Name}).");
         }
+    }
+
+    /// <summary>Removes the session from the shared sidebar order list (the web's unpin).</summary>
+    private async Task UnorderAsync(WorkspaceSessionOperation operation, WorkspaceSession session)
+    {
+        var entries = await operation.Client.RequestSidebarEntriesAsync();
+        var next = WorkspaceSidebarEntries.Remove(entries, session.Key);
+        if (next.Count == entries.Count)
+            return;
+        if (await operation.Client.PatchSidebarEntriesAsync(next, entries))
+            await RefreshGroupsAsync();
     }
 
     private void CopyToClipboard(string text, string failureKey)

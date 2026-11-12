@@ -138,12 +138,6 @@ public class SettingsManager
     /// </summary>
     public bool UseLegacyWebChat { get => _data.UseLegacyWebChat; set => _data = _data with { UseLegacyWebChat = value }; }
     public bool ShowCompletedSessions { get => _data.ShowCompletedSessions; set => _data = _data with { ShowCompletedSessions = value }; }
-    /// <summary>Manual sidebar session order from drag-to-reorder; session keys in display order.</summary>
-    public List<string> SessionOrderKeys
-    {
-        get => _data.SessionOrderKeys ??= new();
-        set => _data = _data with { SessionOrderKeys = value ?? new() };
-    }
     public string AppTheme { get => NormalizeAppTheme(_data.AppTheme); set => _data = _data with { AppTheme = NormalizeAppTheme(value) }; }
     public bool? ShowDiagnosticsOverride { get => _data.ShowDiagnostics; set => _data = _data with { ShowDiagnostics = value }; }
     public bool ShowDiagnosticsEffective => _data.ShowDiagnostics ?? OpenClawTray.Helpers.DiagnosticsGate.BuildDefault;
@@ -495,7 +489,6 @@ public class SettingsManager
             TtsPiperVoiceId = string.IsNullOrWhiteSpace(loaded.TtsPiperVoiceId) ? defaults.TtsPiperVoiceId : loaded.TtsPiperVoiceId,
             TtsKokoroVoiceId = string.IsNullOrWhiteSpace(loaded.TtsKokoroVoiceId) ? defaults.TtsKokoroVoiceId : loaded.TtsKokoroVoiceId,
             A2UIImageHosts = loaded.A2UIImageHosts is { Count: > 0 } hosts ? new List<string>(hosts) : new(),
-            SessionOrderKeys = loaded.SessionOrderKeys is { Count: > 0 } order ? new List<string>(order) : null,
             PinnedPagesByGateway = NullIfEmpty(ClonePinnedPages(loaded.PinnedPagesByGateway)),
             SkippedUpdateTag = loaded.SkippedUpdateTag ?? defaults.SkippedUpdateTag,
             PreferredGatewayId = loaded.PreferredGatewayId ?? defaults.PreferredGatewayId,

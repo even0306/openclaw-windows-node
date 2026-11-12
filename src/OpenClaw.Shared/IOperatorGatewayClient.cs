@@ -129,6 +129,22 @@ public interface IOperatorGatewayClient
     Task<bool> PutSessionGroupsAsync(
         IReadOnlyList<string> names, IReadOnlyList<string>? sectionOrder = null, int timeoutMs = 15000)
         => Task.FromResult(false);
+    /// <summary>
+    /// Reads the shared sidebar entries order (<c>ui.prefs.sidebarEntries</c> via
+    /// <c>config.get</c>): mixed entry ids like <c>session:&lt;key&gt;</c> in display
+    /// order. Defaults to an empty list on older clients and gateways.
+    /// </summary>
+    Task<IReadOnlyList<string>> RequestSidebarEntriesAsync(int timeoutMs = 15000)
+        => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+    /// <summary>
+    /// Writes the shared sidebar entries order (<c>config.patch</c> on
+    /// <c>ui.prefs</c>), mirroring the web UI's batch shape: the new list, the
+    /// previous list as the merge base, and the order-change flag. Defaults to
+    /// false on older clients.
+    /// </summary>
+    Task<bool> PatchSidebarEntriesAsync(
+        IReadOnlyList<string> entries, IReadOnlyList<string> previousEntries, int timeoutMs = 15000)
+        => Task.FromResult(false);
     Task RequestUsageAsync();
     Task RequestNodesAsync();
     Task RequestUsageStatusAsync();

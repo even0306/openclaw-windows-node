@@ -162,6 +162,7 @@ public sealed class WorkspaceSessionMenuTests
         Assert.Equal(new[] { "Ops", "Fun" }, targets.Select(c => c.LiteralLabel));
         Assert.All(targets, target => Assert.True(target.IsEnabled));
         Assert.Contains(children, c => c.Action == WorkspaceSessionMenuAction.NewGroup);
+        Assert.Contains(children, c => c.Action == WorkspaceSessionMenuAction.Unorder);
         Assert.False(children.Single(c => c.Action == WorkspaceSessionMenuAction.MoveToUngroup).IsEnabled);
     }
 

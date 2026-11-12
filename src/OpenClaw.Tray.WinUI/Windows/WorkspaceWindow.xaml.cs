@@ -45,9 +45,9 @@ public sealed partial class WorkspaceWindow : WindowEx
     private readonly Dictionary<string, NavigationViewItemHeader> _sessionGroupHeaders = new(StringComparer.Ordinal);
     // Group sections the user collapsed; the header row stays so it can be re-expanded.
     private readonly HashSet<string> _collapsedSessionGroups = new(StringComparer.Ordinal);
-    // Display order of the session rows rendered by the last section sync, used
-    // as the base for drag-to-reorder moves.
-    private List<string> _lastRenderedSessionKeys = new();
+    // Shared sidebar entries order (ui.prefs.sidebarEntries): the web UI's
+    // server-side order store, mirrored here so all clients interoperate.
+    private List<string> _sidebarEntries = new();
     // Payload of the drag started inside this sidebar ("session:<key>" / "group:<name>").
     private string? _dragPayload;
     // Catalog from sessions.groups.list; empty until loaded, which keeps the sidebar flat.
@@ -759,11 +759,7 @@ public sealed partial class WorkspaceWindow : WindowEx
         RestoreAssistantSelection();
         AssistantSelector.PlaceholderText = Text(agents.Count == 0 ? "NoAgents" : "SelectAssistant");
         IReadOnlyList<WorkspaceSession> sessions = _agentSelection.HasSessionAccess
-            ? WorkspaceSessionManualOrder.Apply(
-                WorkspaceProjection.Sessions(_state.Sessions, SelectedAgentId, _sessionOrder, CurrentApp.GatewayClient?.MainSessionKey),
-                CurrentApp.Settings?.SessionOrderKeys,
-                session => session.Key)
-            : [];
+            ? WorkspaceProjection.Sessions(_state.Sessions, SelectedAgentId, _sessionOrder, CurrentApp.GatewayClient?.MainSessionKey) : [];
         SyncSessionItems(_sessionItems, sessions, "WorkspaceSession", NavView.MenuItems.IndexOf(SessionsEmpty) + 1);
         SessionsEmpty.Content = Text("NoSessions");
         SessionsEmpty.Visibility = sessions.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -796,9 +792,11 @@ public sealed partial class WorkspaceWindow : WindowEx
         try
         {
             var catalog = await client.RequestSessionGroupsAsync();
+            var entries = await client.RequestSidebarEntriesAsync();
             if (IsClosed)
                 return;
             _sessionGroups = catalog;
+            _sidebarEntries = entries.ToList();
             _sessionGroupsLoaded = true;
             RefreshSidebar();
         }
@@ -833,12 +831,25 @@ public sealed partial class WorkspaceWindow : WindowEx
         Dictionary<string, NavigationViewItem> cache, IReadOnlyList<WorkspaceSession> sessions,
         string automationPrefix, int start)
     {
-        var sections = WorkspaceSessionSections.Build(sessions, _sessionGroups.GroupNames);
-        var desired = new List<object>(sessions.Count + sections.Count);
+        // Shared order first (the web UI's sidebar entries), then the grouped
+        // sections for everything else.
+        var byKey = new Dictionary<string, WorkspaceSession>(StringComparer.Ordinal);
+        foreach (var session in sessions)
+            byKey.TryAdd(session.Key, session);
+        var orderedRows = new List<WorkspaceSession>();
+        var orderedSet = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var key in WorkspaceSidebarEntries.SessionOrder(_sidebarEntries))
+            if (byKey.TryGetValue(key, out var row) && orderedSet.Add(row.Key))
+                orderedRows.Add(row);
+        var rest = sessions.Where(session => !orderedSet.Contains(session.Key)).ToList();
+        var sections = WorkspaceSessionSections.Build(rest, _sessionGroups.GroupNames);
+        var allSections = orderedRows.Count > 0
+            ? new[] { new WorkspaceSessionSection(null, orderedRows) }.Concat(sections).ToList()
+            : sections;
+        var desired = new List<object>(sessions.Count + allSections.Count);
         var keys = new HashSet<string>(StringComparer.Ordinal);
         var renderedGroups = new HashSet<string>(StringComparer.Ordinal);
-        var renderedKeys = new List<string>(sessions.Count);
-        foreach (var section in sections)
+        foreach (var section in allSections)
         {
             if (section.GroupName is { } groupName)
             {
@@ -851,7 +862,6 @@ public sealed partial class WorkspaceWindow : WindowEx
             foreach (var session in section.Sessions)
             {
                 keys.Add(session.Key);
-                renderedKeys.Add(session.Key);
                 if (cache.TryGetValue(session.Key, out var item))
                 {
                     if (!Equals(item.Tag, session))
@@ -877,7 +887,6 @@ public sealed partial class WorkspaceWindow : WindowEx
             _sessionGroupHeaders.Remove(groupName);
         }
         WorkspaceItemsSync.Arrange(NavView.MenuItems, start, desired);
-        _lastRenderedSessionKeys = renderedKeys;
     }
 
     /// <summary>
@@ -971,7 +980,7 @@ public sealed partial class WorkspaceWindow : WindowEx
     private WorkspaceSession? FindRenderedSession(string key) =>
         _sessionItems.TryGetValue(key, out var item) && item.Tag is WorkspaceSession session ? session : null;
 
-    /// <summary>Drag of a session row onto another row: join its group when needed, then reorder.</summary>
+    /// <summary>Drag of a session row onto another row: join its group when needed, then reorder in the shared list.</summary>
     private async Task DropSessionAtRowAsync(string draggedKey, WorkspaceSession target)
     {
         if (string.Equals(draggedKey, target.Key, StringComparison.Ordinal))
@@ -982,21 +991,30 @@ public sealed partial class WorkspaceWindow : WindowEx
         if (!string.Equals(dragged.Group, target.Group, StringComparison.Ordinal)
             && !await SetSessionGroupAsync(draggedKey, target.Group))
             return;
-        SaveManualMove(draggedKey, target.Key);
-        RefreshSidebar();
+        await MoveSidebarEntryAsync(draggedKey, target.Key);
     }
 
-    /// <summary>Drag of a session row onto a group header: move the session into that group.</summary>
+    /// <summary>
+    /// Drag of a session row onto a group header: move it into that group and
+    /// out of the ordered list, so the row lands in the group it was dropped on.
+    /// </summary>
     private async Task DropSessionAtHeaderAsync(string draggedKey, string groupName)
     {
         var dragged = FindRenderedSession(draggedKey);
         if (dragged is null)
             return;
-        if (!string.Equals(dragged.Group, groupName, StringComparison.Ordinal)
-            && !await SetSessionGroupAsync(draggedKey, groupName))
+        var client = CurrentApp.GatewayClient;
+        if (client is not { IsConnectedToGateway: true })
             return;
-        SaveManualMove(draggedKey, targetKey: null);
-        RefreshSidebar();
+        var moved = !string.Equals(dragged.Group, groupName, StringComparison.Ordinal)
+            && await SetSessionGroupAsync(draggedKey, groupName);
+        var entries = await client.RequestSidebarEntriesAsync();
+        var next = WorkspaceSidebarEntries.Remove(entries, draggedKey);
+        if (next.Count != entries.Count
+            && await client.PatchSidebarEntriesAsync(next, entries))
+            moved = true;
+        if (moved)
+            await RefreshSessionGroupsAsync();
     }
 
     /// <summary>Drag of a group header onto another group (or a row of one): reorder the catalog.</summary>
@@ -1042,13 +1060,21 @@ public sealed partial class WorkspaceWindow : WindowEx
         }
     }
 
-    private void SaveManualMove(string draggedKey, string? targetKey, bool after = false)
+    /// <summary>Writes a reorder into the shared sidebar entries list (the web UI's order store).</summary>
+    private async Task MoveSidebarEntryAsync(string draggedKey, string? targetKey)
     {
-        if (CurrentApp.Settings is not { } settings)
+        var client = CurrentApp.GatewayClient;
+        if (client is not { IsConnectedToGateway: true })
             return;
-        settings.SessionOrderKeys = WorkspaceSessionManualOrder.Move(
-            settings.SessionOrderKeys, _lastRenderedSessionKeys, draggedKey, targetKey, after);
-        settings.Save();
+        var entries = await client.RequestSidebarEntriesAsync();
+        var next = WorkspaceSidebarEntries.Move(entries, draggedKey, targetKey);
+        if (next.SequenceEqual(entries, StringComparer.Ordinal))
+            return;
+        if (await client.PatchSidebarEntriesAsync(next, entries))
+        {
+            _sidebarEntries = next;
+            RefreshSidebar();
+        }
     }
 
     private NavigationViewItem CreateSessionItem(WorkspaceSession session, string automationPrefix)
