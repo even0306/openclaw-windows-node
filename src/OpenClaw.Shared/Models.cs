@@ -246,6 +246,8 @@ public class SessionInfo
     public bool IsMain { get; set; }
     internal bool IsMainResolved { get; set; }
     public string? Label { get; set; }
+    /// <summary>Custom sidebar group name (<c>category</c> on the wire). Null when ungrouped.</summary>
+    public string? Category { get; set; }
     public string Status { get; set; } = "unknown";
     public string? Model { get; set; }
     public string? Channel { get; set; }

@@ -20,6 +20,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using OpenClaw.Shared.Sessions;
 
 namespace OpenClaw.Shared;
 
@@ -1850,6 +1851,61 @@ public partial class OpenClawGatewayClient : WebSocketClientBase, IOperatorGatew
     {
         var ok = await TrySendTrackedRequestAsync("sessions.subscribe", new { });
         _logger.Info($"[SUBSCRIBE] sessions.subscribe sent, result={ok}");
+    }
+
+    /// <summary>
+    /// Fetches the custom sidebar group catalog (<c>sessions.groups.list</c>).
+    /// Older gateways predate the method; grouping is a display enhancement, so
+    /// unsupported or failed reads degrade to an empty catalog instead of an error.
+    /// </summary>
+    public async Task<SessionGroupCatalog> RequestSessionGroupsAsync(int timeoutMs = 15000)
+    {
+        if (_operatorReadScopeUnavailable) return SessionGroupCatalog.Empty;
+        try
+        {
+            var payload = await SendWizardRequestAsync("sessions.groups.list", new { }, timeoutMs);
+            return ParseSessionGroupCatalog(payload);
+        }
+        catch (InvalidOperationException ex) when (IsUnknownMethodError(ex.Message))
+        {
+            return SessionGroupCatalog.Empty;
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn($"sessions.groups.list failed: {ex.Message}");
+            return SessionGroupCatalog.Empty;
+        }
+    }
+
+    internal static SessionGroupCatalog ParseSessionGroupCatalog(JsonElement payload)
+    {
+        if (payload.ValueKind != JsonValueKind.Object)
+            return SessionGroupCatalog.Empty;
+        var groups = new List<SessionGroupInfo>();
+        if (payload.TryGetProperty("groups", out var entries) && entries.ValueKind == JsonValueKind.Array)
+        {
+            for (var i = 0; i < entries.GetArrayLength(); i++)
+            {
+                var entry = entries[i];
+                if (entry.ValueKind != JsonValueKind.Object) continue;
+                var name = GetString(entry, "name");
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                var position = entry.TryGetProperty("position", out var pos)
+                    && pos.ValueKind == JsonValueKind.Number && pos.TryGetInt32(out var parsed)
+                        ? parsed : groups.Count;
+                groups.Add(new SessionGroupInfo(name!, position));
+            }
+        }
+        var sectionOrder = new List<string>();
+        if (payload.TryGetProperty("sectionOrder", out var sections) && sections.ValueKind == JsonValueKind.Array)
+        {
+            for (var i = 0; i < sections.GetArrayLength(); i++)
+                if (sections[i].ValueKind == JsonValueKind.String && sections[i].GetString() is { Length: > 0 } section)
+                    sectionOrder.Add(section);
+        }
+        return groups.Count == 0 && sectionOrder.Count == 0
+            ? SessionGroupCatalog.Empty
+            : new SessionGroupCatalog(groups, sectionOrder);
     }
 
     /// <summary>Request usage/context info from gateway (may not be supported on all gateways).</summary>
@@ -5392,6 +5448,10 @@ public partial class OpenClawGatewayClient : WebSocketClientBase, IOperatorGatew
             session.Model = newModel;
         }
         if (item.TryGetProperty("label", out _)) session.Label = GetString(item, "label");
+        // Custom sidebar group. Full list rows omit the field when ungrouped, so
+        // an authoritative row must clear a stale value (same contract as pinned).
+        if (item.TryGetProperty("category", out _)) session.Category = GetString(item, "category");
+        else if (authoritativeSessionList) session.Category = null;
         if (item.TryGetProperty("channel", out _)) session.Channel = GetString(item, "channel");
         if (item.TryGetProperty("displayName", out _)) session.DisplayName = GetString(item, "displayName");
         if (item.TryGetProperty("derivedTitle", out _)) session.DerivedTitle = GetString(item, "derivedTitle");

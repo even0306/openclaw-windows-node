@@ -31,6 +31,9 @@ public sealed partial class SessionsPage : Page
     private bool _syncingShowCompletedToggle;
     private bool _showBackgroundSessions;
     private readonly ArchivedSessionsSource _archived;
+    // Custom sidebar group catalog (sessions.groups.list); empty keeps the list flat.
+    private SessionGroupCatalog _sessionGroups = SessionGroupCatalog.Empty;
+    private Microsoft.UI.Xaml.Data.CollectionViewSource? _groupedSessionsView;
 
     public SessionsPage()
     {
@@ -192,6 +195,7 @@ public sealed partial class SessionsPage : Page
 
         _ = client.RequestSessionsAsync();
         _ = client.RequestModelsListAsync();
+        _ = RefreshSessionGroupsAsync();
     }
 
     private void OnOpenConnectionClick(object sender, RoutedEventArgs e)
@@ -283,7 +287,7 @@ public sealed partial class SessionsPage : Page
         }
         else
         {
-            SessionListView.ItemsSource = viewModels;
+            SessionListView.ItemsSource = BuildItemsSource(viewModels);
             SessionListView.Visibility = Visibility.Visible;
             EmptyState.Visibility = Visibility.Collapsed;
         }
@@ -294,6 +298,189 @@ public sealed partial class SessionsPage : Page
     }
 
     private bool ShowCompletedSessions => CurrentApp.Settings?.ShowCompletedSessions ?? false;
+
+    /// <summary>
+    /// Grouped source when at least one row carries a custom sidebar group, else
+    /// the flat list. Section order: ungrouped, catalog groups, then any group
+    /// name the catalog does not list (kept visible in name order).
+    /// </summary>
+    private object BuildItemsSource(List<SessionViewModel> viewModels)
+    {
+        var buckets = new Dictionary<string, List<SessionViewModel>>(StringComparer.Ordinal);
+        foreach (var vm in viewModels)
+        {
+            var name = vm.Group ?? "";
+            if (!buckets.TryGetValue(name, out var bucket))
+                buckets[name] = bucket = new List<SessionViewModel>();
+            bucket.Add(vm);
+        }
+        if (!viewModels.Any(vm => vm.Group is not null))
+            return viewModels;
+
+        var groups = new System.Collections.ObjectModel.ObservableCollection<SessionGroupItems>();
+        if (buckets.Remove("", out var ungrouped))
+            groups.Add(new SessionGroupItems(LocalizationHelper.GetString("SessionsPage_Ungrouped"), ungrouped));
+        foreach (var name in _sessionGroups.GroupNames)
+            if (buckets.Remove(name, out var bucket))
+                groups.Add(new SessionGroupItems(name, bucket));
+        foreach (var (name, bucket) in buckets.OrderBy(entry => entry.Key, StringComparer.Ordinal))
+            groups.Add(new SessionGroupItems(name, bucket));
+
+        _groupedSessionsView = new Microsoft.UI.Xaml.Data.CollectionViewSource
+        {
+            IsSourceGrouped = true,
+            Source = groups,
+        };
+        return _groupedSessionsView.View!;
+    }
+
+    /// <summary>Loads the custom sidebar group catalog; failures keep the list flat.</summary>
+    private async Task RefreshSessionGroupsAsync()
+    {
+        var client = CurrentApp.GatewayClient;
+        if (client is not { IsConnectedToGateway: true })
+            return;
+        try
+        {
+            _sessionGroups = await client.RequestSessionGroupsAsync();
+        }
+        catch (Exception ex)
+        {
+            new AppLogger().Warn($"[Sessions] Group catalog refresh failed ({ex.GetType().Name}).");
+        }
+        if (!_unloaded)
+            ApplyFilter();
+    }
+
+    private void OnSessionMenuOpening(Microsoft.UI.Xaml.Controls.MenuFlyout sender, object args)
+    {
+        var vm = sender.Target is FrameworkElement target ? ResolveSessionVm(target) : null;
+        foreach (var sub in sender.Items.OfType<MenuFlyoutSubItem>().Where(item => Equals(item.Tag, "MoveToGroup")))
+        {
+            sub.Text = LocalizationHelper.GetString("WorkspaceShell_SessionMenu_MoveToGroup");
+            PopulateMoveToGroup(sub, vm);
+        }
+    }
+
+    private void PopulateMoveToGroup(MenuFlyoutSubItem sub, SessionViewModel? vm)
+    {
+        sub.Items.Clear();
+        var canEdit = vm?.CanEdit ?? false;
+        foreach (var name in _sessionGroups.GroupNames)
+        {
+            var target = name;
+            var item = new MenuFlyoutItem
+            {
+                Text = name,
+                IsEnabled = canEdit && vm?.Key is not null
+                    && !string.Equals(vm.Group, target, StringComparison.Ordinal),
+            };
+            item.Click += (_, _) => AsyncEventHandlerGuard.Run(
+                () => MoveSessionToGroupAsync(vm?.Key, target),
+                new AppLogger(),
+                nameof(MoveSessionToGroupAsync));
+            sub.Items.Add(item);
+        }
+        if (sub.Items.Count > 0)
+            sub.Items.Add(new MenuFlyoutSeparator());
+
+        var newItem = new MenuFlyoutItem
+        {
+            Text = LocalizationHelper.GetString("WorkspaceShell_SessionMenu_MoveToGroupNew"),
+            IsEnabled = canEdit && vm is not null,
+        };
+        newItem.Click += (_, _) => AsyncEventHandlerGuard.Run(
+            () => NewGroupAsync(vm!),
+            new AppLogger(),
+            nameof(NewGroupAsync));
+        sub.Items.Add(newItem);
+
+        var ungroup = new MenuFlyoutItem
+        {
+            Text = LocalizationHelper.GetString("WorkspaceShell_SessionMenu_MoveToUngroup"),
+            IsEnabled = canEdit && vm?.Group is not null,
+        };
+        ungroup.Click += (_, _) => AsyncEventHandlerGuard.Run(
+            () => MoveSessionToGroupAsync(vm?.Key, null),
+            new AppLogger(),
+            nameof(MoveSessionToGroupAsync));
+        sub.Items.Add(ungroup);
+    }
+
+    private async Task MoveSessionToGroupAsync(string? key, string? target)
+    {
+        if (string.IsNullOrEmpty(key))
+            return;
+        var client = CurrentApp.GatewayClient;
+        if (client is not { IsConnectedToGateway: true })
+        {
+            ShowDisconnected();
+            return;
+        }
+        var operation = new WorkspaceSessionOperation(client, () => CurrentApp.GatewayClient);
+        try
+        {
+            var patch = new SessionPatch();
+            if (target is null)
+                patch.Category = SessionPatch.Clear;
+            else
+                patch.Category = target;
+            await operation.PatchAsync(key, patch);
+            await client.RequestSessionsAsync();
+            await RefreshSessionGroupsAsync();
+        }
+        catch (WorkspaceSessionConnectionChangedException)
+        {
+            ShowActionInfo(LocalizationHelper.GetString("WorkspaceShell_SessionMenu_MoveToGroup"),
+                LocalizationHelper.GetString("WorkspaceShell_SessionConnectionChanged"), InfoBarSeverity.Error);
+        }
+        catch (TimeoutException)
+        {
+            ShowActionInfo(LocalizationHelper.GetString("WorkspaceShell_SessionMenu_MoveToGroup"),
+                LocalizationHelper.GetString("WorkspaceShell_SessionActionTimedOut"), InfoBarSeverity.Error);
+        }
+        catch (Exception ex)
+        {
+            ShowActionFailure(LocalizationHelper.GetString("WorkspaceShell_SessionMenu_MoveToGroup"), ex);
+        }
+    }
+
+    private async Task NewGroupAsync(SessionViewModel vm)
+    {
+        if (XamlRoot == null)
+            return;
+        var input = new TextBox
+        {
+            PlaceholderText = LocalizationHelper.GetString("WorkspaceShell_SessionMoveGroup_Placeholder"),
+            MaxLength = 512,
+            AcceptsReturn = false,
+        };
+        input.Loaded += (_, _) => input.Focus(FocusState.Programmatic);
+
+        var content = new StackPanel { Spacing = 8 };
+        content.Children.Add(new TextBlock
+        {
+            Text = LocalizationHelper.GetString("WorkspaceShell_SessionMoveGroup_Body"),
+            TextWrapping = TextWrapping.Wrap,
+        });
+        content.Children.Add(input);
+
+        var dialog = new ContentDialog
+        {
+            Title = LocalizationHelper.GetString("WorkspaceShell_SessionMoveGroup_Title"),
+            Content = content,
+            PrimaryButtonText = LocalizationHelper.GetString("WorkspaceShell_SessionMoveGroup_Save"),
+            CloseButtonText = LocalizationHelper.GetString("SessionActionPrompt_CancelLabel"),
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = XamlRoot,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            return;
+        var name = input.Text.Trim();
+        if (name.Length == 0)
+            return;
+        await MoveSessionToGroupAsync(vm.Key, name);
+    }
 
     private void SyncShowCompletedToggle()
     {
@@ -457,6 +644,7 @@ public sealed partial class SessionsPage : Page
             CanEdit = _sessionLoading.CanEdit,
             IsMain = isMain,
             CanDelete = _sessionLoading.CanEdit && SessionActionPlanner.IsAllowed(SessionActionKind.Delete, mainState, out _),
+            Group = string.IsNullOrWhiteSpace(s.Category) ? null : s.Category,
         };
     }
 
@@ -796,6 +984,7 @@ public sealed partial class SessionsPage : Page
         ApplyFilter();
         _ = client.RequestSessionsAsync();
         _ = client.RequestModelsListAsync();
+        _ = RefreshSessionGroupsAsync();
 
         _ = _archived.RefreshAsync(client);
         if (RefreshLabel is not null)
@@ -863,5 +1052,15 @@ public class SessionViewModel
     public bool CanEdit { get; set; } = true;
     public bool IsMain { get; set; }
     public bool CanDelete { get; set; } = true;
+    /// <summary>Custom sidebar group name; null when ungrouped.</summary>
+    public string? Group { get; set; }
     public Visibility TokenRowVisibility => HasTokenData ? Visibility.Visible : Visibility.Collapsed;
+}
+
+/// <summary>One grouped list section (custom sidebar group) for the sessions list.</summary>
+public sealed class SessionGroupItems : System.Collections.ObjectModel.ObservableCollection<SessionViewModel>
+{
+    public SessionGroupItems(string name, IEnumerable<SessionViewModel> items) : base(items.ToList()) => Name = name;
+
+    public string Name { get; }
 }

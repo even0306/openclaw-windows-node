@@ -111,6 +111,18 @@
                               AutomationProperties.LabeledBy="{Binding ElementName=SessionsHeading}"
                               SelectionMode="None"
                               ShowsScrollingPlaceholders="False">
+                        <ListView.GroupStyle>
+                            <GroupStyle>
+                                <GroupStyle.HeaderTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}"
+                                                   Style="{StaticResource BodyStrongTextBlockStyle}"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                   Margin="2,12,0,4"/>
+                                    </DataTemplate>
+                                </GroupStyle.HeaderTemplate>
+                            </GroupStyle>
+                        </ListView.GroupStyle>
                         <ListView.ItemContainerStyle>
                             <Style TargetType="ListViewItem">
                                 <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
@@ -204,7 +216,7 @@
                                                           FontSize="14"
                                                           IsTextScaleFactorEnabled="False"/>
                                                 <Button.Flyout>
-                                                    <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                                    <MenuFlyout Placement="BottomEdgeAlignedRight" Opening="OnSessionMenuOpening">
                                                         <MenuFlyoutItem x:Uid="SessionsPage_OpenDashboard"
                                                                         Text="Open dashboard"
                                                                         Tag="{Binding Key}"
@@ -216,6 +228,16 @@
                                                                           IsTextScaleFactorEnabled="False"/>
                                                             </MenuFlyoutItem.Icon>
                                                         </MenuFlyoutItem>
+                                                        <MenuFlyoutSeparator/>
+                                                        <MenuFlyoutSubItem Text="Move to group"
+                                                                           Tag="MoveToGroup"
+                                                                           AutomationProperties.AutomationId="SessionMoveToGroup">
+                                                            <MenuFlyoutSubItem.Icon>
+                                                                <FontIcon Glyph="&#xE8DA;"
+                                                                          FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                                                                          IsTextScaleFactorEnabled="False"/>
+                                                            </MenuFlyoutSubItem.Icon>
+                                                        </MenuFlyoutSubItem>
                                                         <MenuFlyoutSeparator/>
                                                         <MenuFlyoutItem x:Uid="SessionsPage_Reset"
                                                                         Text="Reset"

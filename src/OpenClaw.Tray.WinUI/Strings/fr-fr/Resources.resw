@@ -7077,6 +7077,14 @@ Après votre inscription, revenez dans Paramètres &gt; Windows Update et recher
   <data name="WorkspaceShell_SessionRename_Title" xml:space="preserve"><value>Rename session</value></data>
   <data name="WorkspaceShell_SessionRename_Body" xml:space="preserve"><value>Leave blank to use the default title.</value></data>
   <data name="WorkspaceShell_SessionRename_Save" xml:space="preserve"><value>Save</value></data>
+  <data name="WorkspaceShell_SessionMenu_MoveToGroup" xml:space="preserve"><value>Déplacer vers un groupe</value></data>
+  <data name="WorkspaceShell_SessionMenu_MoveToGroupNew" xml:space="preserve"><value>Nouveau groupe…</value></data>
+  <data name="WorkspaceShell_SessionMenu_MoveToUngroup" xml:space="preserve"><value>Retirer du groupe</value></data>
+  <data name="WorkspaceShell_SessionMoveGroup_Title" xml:space="preserve"><value>Déplacer vers un nouveau groupe</value></data>
+  <data name="WorkspaceShell_SessionMoveGroup_Body" xml:space="preserve"><value>Nommez le groupe où déplacer cette session. Un nouveau nom crée le groupe.</value></data>
+  <data name="WorkspaceShell_SessionMoveGroup_Save" xml:space="preserve"><value>Déplacer</value></data>
+  <data name="WorkspaceShell_SessionMoveGroup_Placeholder" xml:space="preserve"><value>Nom du groupe</value></data>
+  <data name="SessionsPage_Ungrouped" xml:space="preserve"><value>Non groupé</value></data>
   <data name="WorkspaceShell_SessionPinned" xml:space="preserve"><value>Pinned</value></data>
   <data name="WorkspaceShell_SessionUnread" xml:space="preserve"><value>Unread</value></data>
   <data name="WorkspaceShell_SessionWorking" xml:space="preserve"><value>Working</value></data>

@@ -9,6 +9,7 @@
 // </summary>
 
 using System.Text.Json;
+using OpenClaw.Shared.Sessions;
 using OpenClaw.Shared.Usage;
 
 namespace OpenClaw.Shared;
@@ -113,6 +114,13 @@ public interface IOperatorGatewayClient
     /// <summary>Checks the active connection and reconnects when necessary.</summary>
     Task CheckHealthAsync();
     Task RequestSessionsAsync(string? agentId = null);
+    /// <summary>
+    /// Fetches the custom sidebar group catalog (<c>sessions.groups.list</c>).
+    /// Defaults to an empty catalog so adding it does not source-break external
+    /// implementers (test doubles), and older gateways simply show no grouping.
+    /// </summary>
+    Task<SessionGroupCatalog> RequestSessionGroupsAsync(int timeoutMs = 15000)
+        => Task.FromResult(SessionGroupCatalog.Empty);
     Task RequestUsageAsync();
     Task RequestNodesAsync();
     Task RequestUsageStatusAsync();

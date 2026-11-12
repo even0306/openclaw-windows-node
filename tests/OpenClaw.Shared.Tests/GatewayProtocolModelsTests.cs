@@ -173,6 +173,40 @@ public class GatewayProtocolModelsTests
     }
 
     [Fact]
+    public void SessionPatch_Category_MovesGroupAndClearsWithNull()
+    {
+        var moved = new SessionPatch { Category = "Ops" };
+        var payload = moved.ToPayload("agent:main:main");
+        Assert.Equal("Ops", payload["category"]);
+        Assert.True(moved.HasChanges);
+
+        var cleared = new SessionPatch { Category = SessionPatch.Clear }.ToPayload("agent:main:main");
+        Assert.True(cleared.ContainsKey("category"));
+        Assert.Null(cleared["category"]);
+
+        Assert.False(new SessionPatch().ToPayload("k").ContainsKey("category"));
+    }
+
+    [Fact]
+    public void ParseSessionGroupCatalog_ReadsNamesPositionsAndSectionOrder()
+    {
+        var catalog = OpenClawGatewayClient.ParseSessionGroupCatalog(Parse("""
+            {"groups":[{"name":"B","position":1},{"name":"A","position":0}],
+             "sectionOrder":["ungrouped","category:A"]}
+            """));
+
+        Assert.Equal(new[] { "A", "B" }, catalog.GroupNames);
+        Assert.Equal(new[] { "ungrouped", "category:A" }, catalog.SectionOrder);
+
+        var missingPositions = OpenClawGatewayClient.ParseSessionGroupCatalog(Parse("""
+            {"groups":[{"name":"Only"}]}
+            """));
+        Assert.Equal(new[] { "Only" }, missingPositions.GroupNames);
+
+        Assert.Empty(OpenClawGatewayClient.ParseSessionGroupCatalog(Parse("{}")).GroupNames);
+    }
+
+    [Fact]
     public void ParseSessionCompactResult_PreservesTerminalOutcomeAndMetrics()
     {
         var result = OpenClawGatewayClient.ParseSessionCompactResult(Parse("""

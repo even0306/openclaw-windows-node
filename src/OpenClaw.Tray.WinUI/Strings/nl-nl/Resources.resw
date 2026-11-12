@@ -7078,6 +7078,14 @@ Ga na inschrijving terug naar Instellingen &gt; Windows Update en controleer op 
   <data name="WorkspaceShell_SessionRename_Title" xml:space="preserve"><value>Rename session</value></data>
   <data name="WorkspaceShell_SessionRename_Body" xml:space="preserve"><value>Leave blank to use the default title.</value></data>
   <data name="WorkspaceShell_SessionRename_Save" xml:space="preserve"><value>Save</value></data>
+  <data name="WorkspaceShell_SessionMenu_MoveToGroup" xml:space="preserve"><value>Verplaatsen naar groep</value></data>
+  <data name="WorkspaceShell_SessionMenu_MoveToGroupNew" xml:space="preserve"><value>Nieuwe groep…</value></data>
+  <data name="WorkspaceShell_SessionMenu_MoveToUngroup" xml:space="preserve"><value>Groep opheffen</value></data>
+  <data name="WorkspaceShell_SessionMoveGroup_Title" xml:space="preserve"><value>Verplaatsen naar nieuwe groep</value></data>
+  <data name="WorkspaceShell_SessionMoveGroup_Body" xml:space="preserve"><value>Geef de groep waarin deze sessie wordt verplaatst. Een nieuwe naam maakt de groep aan.</value></data>
+  <data name="WorkspaceShell_SessionMoveGroup_Save" xml:space="preserve"><value>Verplaatsen</value></data>
+  <data name="WorkspaceShell_SessionMoveGroup_Placeholder" xml:space="preserve"><value>Groepsnaam</value></data>
+  <data name="SessionsPage_Ungrouped" xml:space="preserve"><value>Niet gegroepeerd</value></data>
   <data name="WorkspaceShell_SessionPinned" xml:space="preserve"><value>Pinned</value></data>
   <data name="WorkspaceShell_SessionUnread" xml:space="preserve"><value>Unread</value></data>
   <data name="WorkspaceShell_SessionWorking" xml:space="preserve"><value>Working</value></data>

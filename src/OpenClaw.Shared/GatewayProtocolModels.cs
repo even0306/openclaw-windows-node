@@ -290,6 +290,12 @@ public sealed class SessionPatch
     public PatchField<SessionSendPolicy> SendPolicy { get; set; }
     public PatchField<SessionGroupActivation> GroupActivation { get; set; }
     public PatchField<string> Label { get; set; }
+    /// <summary>
+    /// Custom sidebar group (<c>category</c> on the wire). A named value moves
+    /// the session into that group, creating the group when it does not exist;
+    /// <see cref="Clear"/> returns the session to ungrouped.
+    /// </summary>
+    public PatchField<string> Category { get; set; }
     public PatchField<bool> Pinned { get; set; }
     public PatchField<bool> Unread { get; set; }
     public PatchField<bool> Archived { get; set; }
@@ -309,6 +315,7 @@ public sealed class SessionPatch
         ResponseUsage.IsSpecified || ProducesString(ElevatedLevel) || ProducesString(ExecHost) ||
         ProducesString(ExecSecurity) || ProducesString(ExecAsk) || ProducesString(ExecNode) ||
         SendPolicy.IsSpecified || GroupActivation.IsSpecified || ProducesString(Label) ||
+        ProducesString(Category) ||
         Pinned.IsSpecified || Unread.IsSpecified || Archived.IsSpecified;
 
     /// <summary>
@@ -337,6 +344,7 @@ public sealed class SessionPatch
         AddEncoded(payload, "sendPolicy", SendPolicy, p => p == SessionSendPolicy.Allow ? "allow" : "deny");
         AddEncoded(payload, "groupActivation", GroupActivation, g => g == SessionGroupActivation.Mention ? "mention" : "always");
         AddString(payload, "label", Label);
+        AddString(payload, "category", Category);
         AddEncoded(payload, "pinned", Pinned, v => v);
         AddEncoded(payload, "unread", Unread, v => v);
         AddEncoded(payload, "archived", Archived, v => v);

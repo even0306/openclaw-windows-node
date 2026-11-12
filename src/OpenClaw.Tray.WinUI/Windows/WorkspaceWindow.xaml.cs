@@ -9,6 +9,7 @@ using Microsoft.UI.Xaml.Shapes;
 using OpenClaw.Connection;
 using OpenClaw.SetupEngine;
 using OpenClaw.Shared;
+using OpenClaw.Shared.Sessions;
 using OpenClawTray.Controls;
 using OpenClawTray.Dialogs;
 using OpenClawTray.Helpers;
@@ -39,6 +40,12 @@ public sealed partial class WorkspaceWindow : WindowEx
     private readonly FlyoutShowRequest _workspaceSearchShow;
     // Sidebar rows keyed by session key; SyncSessionItems keeps MenuItems in step with these.
     private readonly Dictionary<string, NavigationViewItem> _sessionItems = new(StringComparer.Ordinal);
+    // Custom sidebar group headers keyed by group name, reconciled by the same section sync.
+    private readonly Dictionary<string, NavigationViewItemHeader> _sessionGroupHeaders = new(StringComparer.Ordinal);
+    // Catalog from sessions.groups.list; empty until loaded, which keeps the sidebar flat.
+    private SessionGroupCatalog _sessionGroups = SessionGroupCatalog.Empty;
+    private bool _sessionGroupsLoaded;
+    private bool _sessionGroupsLoading;
     private bool _updating;
     private bool _creatingSession;
     // Session switches commit sidebar/navigation state synchronously; the chat surface is
@@ -97,7 +104,9 @@ public sealed partial class WorkspaceWindow : WindowEx
             ForkSessionAsync,
             LeaveSession,
             ShowInfo,
-            ReportError);
+            ReportError,
+            () => _sessionGroups.GroupNames,
+            RefreshSessionGroupsAsync);
         _gatewayStatusFlyout.Content = _gatewayStatusContent;
         _workspaceSearchShow = new FlyoutShowRequest(WorkspaceSearchFlyout, OpenCommandCenter);
         var searchLabel = LocalizationHelper.GetString("TitleSearchBox.PlaceholderText");
@@ -753,9 +762,38 @@ public sealed partial class WorkspaceWindow : WindowEx
         AutomationProperties.SetHelpText(NewSessionButton, selectionRequired ? Text("SelectAssistant") : string.Empty);
         ToolTipService.SetToolTip(NewSessionButton, selectionRequired ? Text("SelectAssistant") : null);
         _updating = false;
+        // Grouping is a display enhancement loaded alongside the first session
+        // render; older gateways report an empty catalog and the sidebar stays flat.
+        if (!_sessionGroupsLoaded && !_sessionGroupsLoading &&
+            CurrentApp.GatewayClient is { IsConnectedToGateway: true })
+            _ = RefreshSessionGroupsAsync();
         // Before layout, NavigationView is still minimal and selecting an item closes its pane.
         if (Root.IsLoaded)
             UpdateNavigationSelection();
+    }
+
+    /// <summary>
+    /// Loads or refreshes the custom sidebar group catalog so the session list can
+    /// group rows and the context menu can offer moves between groups.
+    /// </summary>
+    internal async Task RefreshSessionGroupsAsync()
+    {
+        if (IsClosed || CurrentApp.GatewayClient is not { IsConnectedToGateway: true } client)
+            return;
+        _sessionGroupsLoading = true;
+        try
+        {
+            var catalog = await client.RequestSessionGroupsAsync();
+            if (IsClosed)
+                return;
+            _sessionGroups = catalog;
+            _sessionGroupsLoaded = true;
+            RefreshSidebar();
+        }
+        finally
+        {
+            _sessionGroupsLoading = false;
+        }
     }
 
     internal static void UpdateAssistantItem(ComboBox selector, ComboBoxItem item, WorkspaceAgent agent)
@@ -783,29 +821,67 @@ public sealed partial class WorkspaceWindow : WindowEx
         Dictionary<string, NavigationViewItem> cache, IReadOnlyList<WorkspaceSession> sessions,
         string automationPrefix, int start)
     {
-        var desired = new List<object>(sessions.Count);
+        var sections = WorkspaceSessionSections.Build(sessions, _sessionGroups.GroupNames);
+        var desired = new List<object>(sessions.Count + sections.Count);
         var keys = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var session in sessions)
+        var renderedGroups = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var section in sections)
         {
-            keys.Add(session.Key);
-            if (cache.TryGetValue(session.Key, out var item))
+            if (section.GroupName is { } groupName)
             {
-                if (!Equals(item.Tag, session))
-                    ApplySessionItem(item, session);
+                renderedGroups.Add(groupName);
+                desired.Add(GroupHeader(groupName));
             }
-            else
+            foreach (var session in section.Sessions)
             {
-                item = CreateSessionItem(session, automationPrefix);
-                cache[session.Key] = item;
+                keys.Add(session.Key);
+                if (cache.TryGetValue(session.Key, out var item))
+                {
+                    if (!Equals(item.Tag, session))
+                        ApplySessionItem(item, session);
+                }
+                else
+                {
+                    item = CreateSessionItem(session, automationPrefix);
+                    cache[session.Key] = item;
+                }
+                desired.Add(item);
             }
-            desired.Add(item);
         }
         foreach (var (key, item) in cache.Where(entry => !keys.Contains(entry.Key)).ToArray())
         {
             NavView.MenuItems.Remove(item);
             cache.Remove(key);
         }
+        foreach (var (groupName, header) in _sessionGroupHeaders
+                     .Where(entry => !renderedGroups.Contains(entry.Key)).ToArray())
+        {
+            NavView.MenuItems.Remove(header);
+            _sessionGroupHeaders.Remove(groupName);
+        }
         WorkspaceItemsSync.Arrange(NavView.MenuItems, start, desired);
+    }
+
+    /// <summary>Section header for one custom sidebar group, cached so a refresh keeps its container.</summary>
+    private NavigationViewItemHeader GroupHeader(string groupName)
+    {
+        if (_sessionGroupHeaders.TryGetValue(groupName, out var header))
+            return header;
+        header = new NavigationViewItemHeader
+        {
+            Content = new TextBlock
+            {
+                Text = groupName,
+                Style = (Style)Application.Current.Resources["NavigationViewItemHeaderTextStyle"],
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            },
+            IsEnabled = true,
+        };
+        AutomationProperties.SetAutomationId(header, $"WorkspaceSessionGroup:{groupName}");
+        AutomationProperties.SetName(header, groupName);
+        _sessionGroupHeaders[groupName] = header;
+        return header;
     }
 
     private NavigationViewItem CreateSessionItem(WorkspaceSession session, string automationPrefix)
@@ -895,6 +971,7 @@ public sealed partial class WorkspaceWindow : WindowEx
         try
         {
             await Task.WhenAll(client.RequestAgentsListAsync(), client.RequestSessionsAsync());
+            await RefreshSessionGroupsAsync();
         }
         catch (Exception ex)
         {

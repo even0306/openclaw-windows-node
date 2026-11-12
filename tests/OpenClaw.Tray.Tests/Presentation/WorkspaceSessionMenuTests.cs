@@ -12,8 +12,10 @@ public sealed class WorkspaceSessionMenuTests
         bool isArchived = false,
         bool hasSessionId = true,
         SessionMainState mainState = SessionMainState.NotMain,
-        bool isConnected = true) =>
-        new(isPinned, isUnread, isArchived, hasSessionId, mainState, isConnected);
+        bool isConnected = true,
+        IReadOnlyList<string>? groups = null,
+        string? currentGroup = null) =>
+        new(isPinned, isUnread, isArchived, hasSessionId, mainState, isConnected, groups, currentGroup);
 
     private static IEnumerable<WorkspaceSessionMenuEntry> Flatten(
         IEnumerable<WorkspaceSessionMenuEntry> entries)
@@ -128,8 +130,56 @@ public sealed class WorkspaceSessionMenuTests
         var delete = Item(entries, WorkspaceSessionMenuAction.Delete);
         Assert.True(delete.IsDestructive);
         Assert.Equal("D", delete.AccessKey);
-        var copy = entries.Single(e => e.Kind == WorkspaceSessionMenuEntryKind.SubMenu);
+        var copy = entries.Single(e => e.LabelKey == "SessionMenu_Copy");
         Assert.Equal("SessionMenu_Copy", copy.LabelKey);
         Assert.Equal(3, copy.Children!.Count);
+    }
+
+    private static IReadOnlyList<WorkspaceSessionMenuEntry> MoveGroupChildren(
+        IEnumerable<WorkspaceSessionMenuEntry> entries) =>
+        entries.Single(e => e.LabelKey == "SessionMenu_MoveToGroup").Children!;
+
+    [Fact]
+    public void Build_MoveToGroupSubmenu_ListsCatalogGroups()
+    {
+        var children = MoveGroupChildren(
+            WorkspaceSessionMenu.Build(State(groups: new[] { "Ops", "Fun" })));
+
+        var targets = children.Where(c => c.Action == WorkspaceSessionMenuAction.MoveToGroup).ToList();
+        Assert.Equal(new[] { "Ops", "Fun" }, targets.Select(c => c.Argument));
+        Assert.Equal(new[] { "Ops", "Fun" }, targets.Select(c => c.LiteralLabel));
+        Assert.All(targets, target => Assert.True(target.IsEnabled));
+        Assert.Contains(children, c => c.Action == WorkspaceSessionMenuAction.NewGroup);
+        Assert.False(children.Single(c => c.Action == WorkspaceSessionMenuAction.MoveToUngroup).IsEnabled);
+    }
+
+    [Fact]
+    public void Build_MoveToGroupSubmenu_DisablesCurrentGroupAndEnablesUngroup()
+    {
+        var children = MoveGroupChildren(
+            WorkspaceSessionMenu.Build(State(groups: new[] { "Ops", "Fun" }, currentGroup: "Ops")));
+
+        Assert.False(children.Single(c => c.Argument == "Ops").IsEnabled);
+        Assert.True(children.Single(c => c.Argument == "Fun").IsEnabled);
+        Assert.True(children.Single(c => c.Action == WorkspaceSessionMenuAction.MoveToUngroup).IsEnabled);
+    }
+
+    [Fact]
+    public void Build_MoveToGroupSubmenu_UngroupDisabledWhenNotGrouped()
+    {
+        var children = MoveGroupChildren(
+            WorkspaceSessionMenu.Build(State(groups: new[] { "Ops" }, currentGroup: null)));
+
+        Assert.False(children.Single(c => c.Action == WorkspaceSessionMenuAction.MoveToUngroup).IsEnabled);
+    }
+
+    [Fact]
+    public void Build_MoveToGroupSubmenu_DisconnectedDisablesAllGroupActions()
+    {
+        var children = MoveGroupChildren(
+            WorkspaceSessionMenu.Build(State(isConnected: false, groups: new[] { "Ops" }, currentGroup: "Ops")));
+
+        Assert.All(children.Where(c => c.Kind == WorkspaceSessionMenuEntryKind.Item),
+            child => Assert.False(child.IsEnabled));
     }
 }

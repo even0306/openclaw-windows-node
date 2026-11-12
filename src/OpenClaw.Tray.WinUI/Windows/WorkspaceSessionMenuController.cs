@@ -30,6 +30,8 @@ internal sealed class WorkspaceSessionMenuController
     private readonly Action<string> _leaveSession;
     private readonly Action<string, InfoBarSeverity> _showMessage;
     private readonly Action<string, Exception> _reportError;
+    private readonly Func<IReadOnlyList<string>> _groupNames;
+    private readonly Func<Task> _refreshGroups;
     private bool _dialogOpen;
 
     public WorkspaceSessionMenuController(
@@ -41,7 +43,9 @@ internal sealed class WorkspaceSessionMenuController
         Func<SessionCreateRequest, Task> forkSession,
         Action<string> leaveSession,
         Action<string, InfoBarSeverity> showMessage,
-        Action<string, Exception> reportError)
+        Action<string, Exception> reportError,
+        Func<IReadOnlyList<string>>? groupNames = null,
+        Func<Task>? refreshGroups = null)
     {
         _client = client;
         _findSession = findSession;
@@ -52,6 +56,8 @@ internal sealed class WorkspaceSessionMenuController
         _leaveSession = leaveSession;
         _showMessage = showMessage;
         _reportError = reportError;
+        _groupNames = groupNames ?? (() => Array.Empty<string>());
+        _refreshGroups = refreshGroups ?? (() => Task.CompletedTask);
         Flyout.Opening += OnFlyoutOpening;
     }
 
@@ -111,7 +117,9 @@ internal sealed class WorkspaceSessionMenuController
         var state = new WorkspaceSessionMenuState(
             session.IsPinned, session.IsUnread, session.IsArchived,
             !string.IsNullOrWhiteSpace(info?.SessionId), mainState,
-            client is { IsConnectedToGateway: true });
+            client is { IsConnectedToGateway: true },
+            _groupNames(),
+            string.IsNullOrWhiteSpace(info?.Category) ? null : info.Category);
 
         if (info?.UpdatedAt is { } updatedAt)
             flyout.Items.Add(new MenuFlyoutItem
@@ -134,14 +142,17 @@ internal sealed class WorkspaceSessionMenuController
         {
             var sub = new MenuFlyoutSubItem
             {
-                Text = WorkspaceWindow.Text(entry.LabelKey),
+                Text = EntryLabel(entry),
                 Icon = entry.Icon == WorkspaceSessionMenuIcon.None
                     ? null
                     : FluentIconCatalog.Build(IconGlyph(entry.Icon)),
                 AccessKey = entry.AccessKey,
                 IsEnabled = entry.IsEnabled,
             };
-            AutomationProperties.SetAutomationId(sub, "WorkspaceSessionMenuCopy");
+            AutomationProperties.SetAutomationId(sub,
+                entry.Action == WorkspaceSessionMenuAction.CopyKey
+                    ? "WorkspaceSessionMenuCopy"
+                    : $"WorkspaceSessionMenu{entry.Action}");
             foreach (var child in entry.Children ?? [])
                 sub.Items.Add(Render(child, session, info));
             return sub;
@@ -149,14 +160,16 @@ internal sealed class WorkspaceSessionMenuController
 
         var item = new MenuFlyoutItem
         {
-            Text = WorkspaceWindow.Text(entry.LabelKey),
+            Text = EntryLabel(entry),
             Icon = entry.Icon == WorkspaceSessionMenuIcon.None
                 ? null
                 : FluentIconCatalog.Build(IconGlyph(entry.Icon)),
             AccessKey = entry.AccessKey,
             IsEnabled = entry.IsEnabled,
         };
-        AutomationProperties.SetAutomationId(item, $"WorkspaceSessionMenu{entry.Action}");
+        AutomationProperties.SetAutomationId(item,
+            $"WorkspaceSessionMenu{entry.Action}" +
+            (entry.Argument is { } argument ? $":{argument}" : ""));
         if (entry.IsDestructive)
         {
             var critical = (Brush)Application.Current.Resources["SystemFillColorCriticalBrush"];
@@ -165,11 +178,14 @@ internal sealed class WorkspaceSessionMenuController
                 icon.Foreground = critical;
         }
         item.Click += (_, _) => AsyncEventHandlerGuard.Run(
-            () => RunAsync(entry.Action, session, info),
+            () => RunAsync(entry, session, info),
             new AppLogger(),
             nameof(RunAsync));
         return item;
     }
+
+    private static string EntryLabel(WorkspaceSessionMenuEntry entry) =>
+        entry.LiteralLabel ?? WorkspaceWindow.Text(entry.LabelKey);
 
     private static string IconGlyph(WorkspaceSessionMenuIcon icon) => icon switch
     {
@@ -181,6 +197,7 @@ internal sealed class WorkspaceSessionMenuController
         WorkspaceSessionMenuIcon.Archive => FluentIconCatalog.Archive,
         WorkspaceSessionMenuIcon.Unarchive => FluentIconCatalog.Unarchive,
         WorkspaceSessionMenuIcon.Fork => FluentIconCatalog.Fork,
+        WorkspaceSessionMenuIcon.Group => FluentIconCatalog.Folder,
         WorkspaceSessionMenuIcon.Copy => FluentIconCatalog.Copy,
         WorkspaceSessionMenuIcon.Reset => FluentIconCatalog.Reset,
         WorkspaceSessionMenuIcon.Compact => FluentIconCatalog.Compact,
@@ -189,11 +206,11 @@ internal sealed class WorkspaceSessionMenuController
         _ => FluentIconCatalog.Copy,
     };
 
-    private async Task RunAsync(WorkspaceSessionMenuAction action, WorkspaceSession session, SessionInfo? info)
+    private async Task RunAsync(WorkspaceSessionMenuEntry entry, WorkspaceSession session, SessionInfo? info)
     {
         try
         {
-            await RunActionAsync(action, session, info);
+            await RunActionAsync(entry, session, info);
         }
         catch (WorkspaceSessionConnectionChangedException)
         {
@@ -205,12 +222,13 @@ internal sealed class WorkspaceSessionMenuController
         }
         catch (Exception ex)
         {
-            _reportError($"session-{action}", ex);
+            _reportError($"session-{entry.Action}", ex);
         }
     }
 
-    private async Task RunActionAsync(WorkspaceSessionMenuAction action, WorkspaceSession session, SessionInfo? info)
+    private async Task RunActionAsync(WorkspaceSessionMenuEntry entry, WorkspaceSession session, SessionInfo? info)
     {
+        var action = entry.Action;
         var client = _client();
         if (client is not { IsConnectedToGateway: true } &&
             action is not (WorkspaceSessionMenuAction.CopyKey or WorkspaceSessionMenuAction.CopySessionId))
@@ -233,6 +251,15 @@ internal sealed class WorkspaceSessionMenuController
                 break;
             case WorkspaceSessionMenuAction.Rename:
                 await RenameAsync(operation!, session, info);
+                break;
+            case WorkspaceSessionMenuAction.MoveToGroup when entry.Argument is { Length: > 0 } target:
+                await MoveToGroupAsync(operation!, session, target);
+                break;
+            case WorkspaceSessionMenuAction.MoveToUngroup:
+                await MoveToGroupAsync(operation!, session, null);
+                break;
+            case WorkspaceSessionMenuAction.NewGroup:
+                await NewGroupAsync(operation!, session);
                 break;
             case WorkspaceSessionMenuAction.Fork:
                 await _forkSession(WorkspaceSessionMenu.ForkRequest(
@@ -356,6 +383,82 @@ internal sealed class WorkspaceSessionMenuController
         finally
         {
             _dialogOpen = false;
+        }
+    }
+
+    /// <summary>
+    /// Moves the session into a custom sidebar group (creating the group on the
+    /// gateway when the name is new) or back to ungrouped when <paramref name="target"/>
+    /// is null.
+    /// </summary>
+    private async Task MoveToGroupAsync(WorkspaceSessionOperation operation, WorkspaceSession session, string? target)
+    {
+        var patch = new SessionPatch();
+        if (target is null)
+            patch.Category = SessionPatch.Clear;
+        else
+            patch.Category = target;
+        await PatchAsync(operation, session.Key, patch);
+        await RefreshGroupsAsync();
+    }
+
+    private async Task NewGroupAsync(WorkspaceSessionOperation operation, WorkspaceSession session)
+    {
+        if (_dialogOpen || _xamlRoot() is not { } xamlRoot)
+            return;
+        _dialogOpen = true;
+        try
+        {
+            var input = new TextBox
+            {
+                PlaceholderText = WorkspaceWindow.Text("SessionMoveGroup_Placeholder"),
+                MaxLength = 512,
+                AcceptsReturn = false,
+            };
+            input.Loaded += (_, _) => input.Focus(FocusState.Programmatic);
+
+            var content = new StackPanel { Spacing = 8 };
+            content.Children.Add(new TextBlock
+            {
+                Text = WorkspaceWindow.Text("SessionMoveGroup_Body"),
+                TextWrapping = TextWrapping.Wrap,
+            });
+            content.Children.Add(input);
+
+            var dialog = new ContentDialog
+            {
+                Title = WorkspaceWindow.Text("SessionMoveGroup_Title"),
+                Content = content,
+                PrimaryButtonText = WorkspaceWindow.Text("SessionMoveGroup_Save"),
+                CloseButtonText = LocalizationHelper.GetString("SessionActionPrompt_CancelLabel"),
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = xamlRoot,
+            };
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+                return;
+            var name = input.Text.Trim();
+            if (name.Length == 0)
+                return;
+            operation.RequireCurrent();
+            await MoveToGroupAsync(operation, session, name);
+        }
+        finally
+        {
+            _dialogOpen = false;
+        }
+    }
+
+    private async Task RefreshGroupsAsync()
+    {
+        try
+        {
+            await _refreshGroups();
+        }
+        catch (Exception ex)
+        {
+            // The move already succeeded; a catalog refresh error only delays
+            // the sidebar regrouping until the next sessions refresh.
+            new AppLogger().Warn($"[Workspace] Session group refresh failed ({ex.GetType().Name}).");
         }
     }
 

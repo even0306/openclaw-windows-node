@@ -10,6 +10,9 @@ internal enum WorkspaceSessionMenuAction
     Rename,
     ToggleUnread,
     ToggleArchive,
+    MoveToGroup,
+    MoveToUngroup,
+    NewGroup,
     Fork,
     CopyKey,
     CopySessionId,
@@ -27,6 +30,7 @@ internal enum WorkspaceSessionMenuIcon
     Pin,
     Unpin,
     Rename,
+    Group,
     MarkUnread,
     MarkRead,
     Archive,
@@ -55,7 +59,11 @@ internal sealed record WorkspaceSessionMenuEntry(
     string? AccessKey = null,
     bool IsEnabled = true,
     bool IsDestructive = false,
-    IReadOnlyList<WorkspaceSessionMenuEntry>? Children = null);
+    IReadOnlyList<WorkspaceSessionMenuEntry>? Children = null,
+    /// <summary>Literal label for dynamic entries (group names); wins over <see cref="LabelKey"/>.</summary>
+    string? LiteralLabel = null,
+    /// <summary>Target group name for <see cref="WorkspaceSessionMenuAction.MoveToGroup"/>.</summary>
+    string? Argument = null);
 
 /// <summary>Row state at open time, enough to label toggles and gate lifecycle entries.</summary>
 internal sealed record WorkspaceSessionMenuState(
@@ -64,7 +72,11 @@ internal sealed record WorkspaceSessionMenuState(
     bool IsArchived,
     bool HasSessionId,
     SessionMainState MainState,
-    bool IsConnected);
+    bool IsConnected,
+    /// <summary>Custom sidebar group names in display order; empty when none are defined.</summary>
+    IReadOnlyList<string>? Groups = null,
+    /// <summary>The session's current custom group name; null when ungrouped.</summary>
+    string? CurrentGroup = null);
 
 /// <summary>
 /// Pure model for the workspace sidebar session context menu: builds the entry
@@ -127,6 +139,7 @@ internal static class WorkspaceSessionMenu
                 "P", gw),
             new(WorkspaceSessionMenuEntryKind.Item, "SessionMenu_Rename",
                 WorkspaceSessionMenuAction.Rename, WorkspaceSessionMenuIcon.Rename, "R", gw),
+            MoveGroupSubMenu(state, gw),
             new(WorkspaceSessionMenuEntryKind.Item,
                 state.IsUnread ? "SessionMenu_MarkRead" : "SessionMenu_MarkUnread",
                 WorkspaceSessionMenuAction.ToggleUnread,
@@ -167,6 +180,33 @@ internal static class WorkspaceSessionMenu
             WorkspaceSessionMenuAction.Delete, WorkspaceSessionMenuIcon.Delete, "D",
             IsEnabled: canLifecycle, IsDestructive: true),
     ];
+
+    /// <summary>
+    /// "Move to group" lists the catalog groups (the current one disabled), then
+    /// the fixed "New group…" and "Ungroup" rows. Assigning a new name creates
+    /// the group on the gateway, so "New group…" only needs a name prompt.
+    /// </summary>
+    private static WorkspaceSessionMenuEntry MoveGroupSubMenu(WorkspaceSessionMenuState state, bool gw)
+    {
+        var groups = state.Groups ?? Array.Empty<string>();
+        var current = string.IsNullOrWhiteSpace(state.CurrentGroup) ? null : state.CurrentGroup;
+        var children = new List<WorkspaceSessionMenuEntry>();
+        foreach (var name in groups)
+            children.Add(new(WorkspaceSessionMenuEntryKind.Item,
+                Action: WorkspaceSessionMenuAction.MoveToGroup,
+                IsEnabled: gw && !string.Equals(name, current, StringComparison.Ordinal),
+                LiteralLabel: name,
+                Argument: name));
+        if (children.Count > 0)
+            children.Add(new(WorkspaceSessionMenuEntryKind.Separator));
+        children.Add(new(WorkspaceSessionMenuEntryKind.Item, "SessionMenu_MoveToGroupNew",
+            WorkspaceSessionMenuAction.NewGroup, IsEnabled: gw));
+        children.Add(new(WorkspaceSessionMenuEntryKind.Item, "SessionMenu_MoveToUngroup",
+            WorkspaceSessionMenuAction.MoveToUngroup, IsEnabled: gw && current is not null));
+        return new(WorkspaceSessionMenuEntryKind.SubMenu, "SessionMenu_MoveToGroup",
+            WorkspaceSessionMenuAction.MoveToGroup, WorkspaceSessionMenuIcon.Group, "G",
+            Children: children);
+    }
 
     private static WorkspaceSessionMenuEntry CopySubMenu(WorkspaceSessionMenuState state, bool gw)
     {
