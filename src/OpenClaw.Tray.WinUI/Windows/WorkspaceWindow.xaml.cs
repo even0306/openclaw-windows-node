@@ -42,6 +42,8 @@ public sealed partial class WorkspaceWindow : WindowEx
     private readonly Dictionary<string, NavigationViewItem> _sessionItems = new(StringComparer.Ordinal);
     // Custom sidebar group headers keyed by group name, reconciled by the same section sync.
     private readonly Dictionary<string, NavigationViewItemHeader> _sessionGroupHeaders = new(StringComparer.Ordinal);
+    // Group sections the user collapsed; the header row stays so it can be re-expanded.
+    private readonly HashSet<string> _collapsedSessionGroups = new(StringComparer.Ordinal);
     // Catalog from sessions.groups.list; empty until loaded, which keeps the sidebar flat.
     private SessionGroupCatalog _sessionGroups = SessionGroupCatalog.Empty;
     private bool _sessionGroupsLoaded;
@@ -831,6 +833,9 @@ public sealed partial class WorkspaceWindow : WindowEx
             {
                 renderedGroups.Add(groupName);
                 desired.Add(GroupHeader(groupName));
+                // A collapsed group keeps its header row only, so it can expand again.
+                if (_collapsedSessionGroups.Contains(groupName))
+                    continue;
             }
             foreach (var session in section.Sessions)
             {
@@ -862,22 +867,50 @@ public sealed partial class WorkspaceWindow : WindowEx
         WorkspaceItemsSync.Arrange(NavView.MenuItems, start, desired);
     }
 
-    /// <summary>Section header for one custom sidebar group, cached so a refresh keeps its container.</summary>
+    /// <summary>
+    /// Section header for one custom sidebar group, cached so a refresh keeps its
+    /// container. Clicking the header (or Space/Enter when focused) collapses and
+    /// expands the group. The chevron is part of the text because the default
+    /// template binds Text to Content and only accepts a plain string.
+    /// </summary>
     private NavigationViewItemHeader GroupHeader(string groupName)
     {
         if (_sessionGroupHeaders.TryGetValue(groupName, out var header))
             return header;
         header = new NavigationViewItemHeader
         {
-            // The default template renders Content as a plain string
-            // (Text="{TemplateBinding Content}"); passing a TextBlock renders blank.
-            Content = groupName,
+            Content = GroupHeaderText(groupName),
             IsEnabled = true,
+            IsTabStop = true,
         };
         AutomationProperties.SetAutomationId(header, $"WorkspaceSessionGroup:{groupName}");
         AutomationProperties.SetName(header, groupName);
+        AutomationProperties.SetItemStatus(header,
+            _collapsedSessionGroups.Contains(groupName) ? "Collapsed" : "Expanded");
+        header.Tapped += (_, _) => ToggleSessionGroup(groupName);
+        header.KeyDown += (_, e) =>
+        {
+            if (e.Key is global::Windows.System.VirtualKey.Space or global::Windows.System.VirtualKey.Enter)
+                ToggleSessionGroup(groupName);
+        };
         _sessionGroupHeaders[groupName] = header;
         return header;
+    }
+
+    private string GroupHeaderText(string groupName) =>
+        (_collapsedSessionGroups.Contains(groupName) ? "\u25B8 " : "\u25BE ") + groupName;
+
+    private void ToggleSessionGroup(string groupName)
+    {
+        if (!_collapsedSessionGroups.Remove(groupName))
+            _collapsedSessionGroups.Add(groupName);
+        if (_sessionGroupHeaders.TryGetValue(groupName, out var header))
+        {
+            header.Content = GroupHeaderText(groupName);
+            AutomationProperties.SetItemStatus(header,
+                _collapsedSessionGroups.Contains(groupName) ? "Collapsed" : "Expanded");
+        }
+        RefreshSidebar();
     }
 
     private NavigationViewItem CreateSessionItem(WorkspaceSession session, string automationPrefix)
