@@ -1,0 +1,95 @@
+name: Fallback Proof
+
+# Unofficial proof harness: runs FluentIconFallbackProofTests on the PR head
+# (after fix) and on the pre-fix base (same test file overlaid) to demonstrate
+# the original failure and the repaired behavior. Dispatch manually.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  proof:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: before-fix
+            ref: 2a23706991584d5bcb813f40deda4cd2883667bc
+          - label: after-fix
+            ref: fix-tray-menu-blank-1567
+    runs-on: windows-latest
+    env:
+      OPENCLAW_TRAY_DATA_DIR: ${{ github.workspace }}\TestData\OpenClawTrayUITests
+      OPENCLAW_TRAY_APPDATA_DIR: ${{ github.workspace }}\TestData\OpenClawTrayUITests-Roaming
+      OPENCLAW_TRAY_LOCALAPPDATA_DIR: ${{ github.workspace }}\TestData\OpenClawTrayUITests-Local
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ matrix.ref }}
+          persist-credentials: false
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Overlay the proof test on the pre-fix run
+        if: matrix.label == 'before-fix'
+        shell: pwsh
+        run: git checkout fix-tray-menu-blank-1567 -- tests/OpenClaw.Tray.UITests/FluentIconFallbackProofTests.cs
+
+      - name: Restore UI test project
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./scripts/Initialize-ReactorPackages.ps1
+          dotnet restore tests/OpenClaw.Tray.UITests -r win-x64
+
+      - name: Build UI test project
+        shell: pwsh
+        run: dotnet build tests/OpenClaw.Tray.UITests -c Debug -r win-x64 --no-restore
+
+      - name: Install WindowsAppRuntime
+        shell: pwsh
+        run: |
+          [xml]$props = Get-Content (Join-Path $env:GITHUB_WORKSPACE "Directory.Build.props")
+          $versionNode = $props.SelectSingleNode("/Project/PropertyGroup/MicrosoftWindowsAppSDKVersion")
+          if ($null -eq $versionNode -or [string]::IsNullOrWhiteSpace($versionNode.InnerText)) {
+            throw "MicrosoftWindowsAppSDKVersion was not found in Directory.Build.props"
+          }
+          $version = $versionNode.InnerText.Trim()
+          $channel = [regex]::Match($version, '^\d+\.\d+').Value
+          $url = "https://aka.ms/windowsappsdk/$channel/$version/windowsappruntimeinstall-x64.exe"
+          Write-Host "Installing WindowsAppRuntime $version from $url"
+          $exe = "$env:RUNNER_TEMP\WindowsAppRuntimeInstall.exe"
+          Invoke-WebRequest -Uri $url -OutFile $exe
+          & $exe --quiet
+          if ($LASTEXITCODE -ne 0) { throw "WindowsAppRuntimeInstall failed with exit code $LASTEXITCODE" }
+
+      - name: Configure UI desktop
+        shell: pwsh
+        run: ./scripts/Set-CiDesktopResolution.ps1
+
+      - name: Run fallback proof tests (${{ matrix.label }})
+        timeout-minutes: 15
+        env:
+          OPENCLAW_UI_TEST_RESOURCE_PROFILE: Standard
+        shell: pwsh
+        run: >
+          ./scripts/Invoke-CiTest.ps1
+          -Project tests/OpenClaw.Tray.UITests
+          -ResultsDirectory TestResults\FallbackProof
+          -TrxFileName fallback-proof-${{ matrix.label }}.trx
+          -Runtime win-x64
+          -Filter "FullyQualifiedName~FluentIconFallbackProofTests"
+          -HangTimeoutSeconds 300
+          -CollectNativeFailureMetadata
+          -CaptureHostExit
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fallback-proof-${{ matrix.label }}
+          path: TestResults/FallbackProof/**
