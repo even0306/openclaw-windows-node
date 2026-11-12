@@ -37,7 +37,9 @@ jobs:
       - name: Overlay the proof test on the pre-fix run
         if: matrix.label == 'before-fix'
         shell: pwsh
-        run: git checkout fix-tray-menu-blank-1567 -- tests/OpenClaw.Tray.UITests/FluentIconFallbackProofTests.cs
+        run: |
+          git fetch origin fix-tray-menu-blank-1567
+          git checkout FETCH_HEAD -- tests/OpenClaw.Tray.UITests/FluentIconFallbackProofTests.cs
 
       - name: Restore UI test project
         shell: pwsh
