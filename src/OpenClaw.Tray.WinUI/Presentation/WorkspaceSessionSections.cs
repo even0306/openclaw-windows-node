@@ -7,8 +7,9 @@ internal sealed record WorkspaceSessionSection(string? GroupName, IReadOnlyList<
 /// Pure projection of sidebar rows into group sections. Catalog groups come
 /// first in catalog order; rows naming a group the catalog does not list are
 /// kept in name order after them so a stale or just-created group never hides
-/// rows. When no grouping exists the result is a single unnamed section, which
-/// keeps the flat sidebar layout unchanged.
+/// rows. The ungrouped bucket trails the named groups like the web UI's
+/// trailing "other sessions" section. When no grouping exists the result is a
+/// single unnamed section, which keeps the flat sidebar layout unchanged.
 /// </summary>
 internal static class WorkspaceSessionSections
 {
@@ -37,12 +38,10 @@ internal static class WorkspaceSessionSections
         if (byGroup.Count == 0)
             return new[] { new WorkspaceSessionSection(null, ungrouped) };
 
-        // Ungrouped rows keep the top "Sessions" section; named groups follow in
-        // catalog order, then any group name missing from the catalog (stable by name).
-        var sections = new List<WorkspaceSessionSection>(byGroup.Count + 1)
-        {
-            new(null, ungrouped),
-        };
+        // Named groups lead in catalog order (the web UI's category zones), and
+        // the ungrouped "other sessions" rows trail them like the web's trailing
+        // ungrouped bucket.
+        var sections = new List<WorkspaceSessionSection>(byGroup.Count + 1);
         foreach (var name in groupOrder)
         {
             if (byGroup.Remove(name, out var bucket))
@@ -50,6 +49,7 @@ internal static class WorkspaceSessionSections
         }
         foreach (var (name, bucket) in byGroup.OrderBy(entry => entry.Key, StringComparer.Ordinal))
             sections.Add(new WorkspaceSessionSection(name, bucket));
+        sections.Add(new WorkspaceSessionSection(null, ungrouped));
         return sections;
     }
 }

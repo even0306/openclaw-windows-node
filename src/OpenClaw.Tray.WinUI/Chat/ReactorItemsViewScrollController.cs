@@ -551,6 +551,10 @@ file sealed class InitialTailPositioner : IDisposable
         _scrollView = nextScrollView;
         if (_scrollView is not null)
         {
+            // Realize rows ahead of the viewport so scrolling does not build
+            // complex markdown rows on the hot path.
+            if (_scrollView.Content is Microsoft.UI.Xaml.Controls.ItemsRepeater cacheRepeater)
+                cacheRepeater.VerticalCacheLength = 3;
             _scrollView.VerticalAnchorRatio = 1.0;
             _scrollView.ViewChanged += OnViewChanged;
             _scrollView.StateChanged += OnScrollStateChanged;

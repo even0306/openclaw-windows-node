@@ -1084,6 +1084,32 @@ public sealed partial class WorkspaceWindow : WindowEx
         ApplySessionItem(item, session);
         item.CanDrag = true;
         item.AllowDrop = true;
+        // NavigationViewItem is a SelectorItem outside a Selector and never
+        // starts the built-in drag gesture (group headers do). Begin the drag
+        // manually once a left press moves past the gesture threshold; the
+        // DragStarting handler below still supplies the payload.
+        var dragPressed = false;
+        var dragOrigin = new global::Windows.Foundation.Point(0, 0);
+        item.PointerPressed += (_, e) =>
+        {
+            var point = e.GetCurrentPoint(item);
+            dragPressed = point.Properties.IsLeftButtonPressed;
+            dragOrigin = point.Position;
+        };
+        item.PointerMoved += (s, e) =>
+        {
+            if (!dragPressed)
+                return;
+            var point = e.GetCurrentPoint(item);
+            if (Math.Abs(point.Position.X - dragOrigin.X) <= 4
+                && Math.Abs(point.Position.Y - dragOrigin.Y) <= 4)
+                return;
+            dragPressed = false;
+            if (s is UIElement element)
+                _ = element.StartDragAsync(e);
+        };
+        item.PointerReleased += (_, _) => dragPressed = false;
+        item.PointerCanceled += (_, _) => dragPressed = false;
         item.DragStarting += (s, e) =>
         {
             if (s is FrameworkElement { Tag: WorkspaceSession dragged })

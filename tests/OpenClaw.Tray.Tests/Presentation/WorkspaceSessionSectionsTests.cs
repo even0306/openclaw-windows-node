@@ -20,7 +20,7 @@ public sealed class WorkspaceSessionSectionsTests
     }
 
     [Fact]
-    public void Build_Grouped_OrdersCatalogGroupsThenUnknownGroups()
+    public void Build_Grouped_OrdersCatalogGroupsThenUnknownGroupsThenUngroupedTail()
     {
         var sessions = new[]
         {
@@ -33,11 +33,13 @@ public sealed class WorkspaceSessionSectionsTests
 
         var sections = WorkspaceSessionSections.Build(sessions, new[] { "Beta", "Alpha" });
 
+        // The web UI's sidebar keeps "other sessions" (ungrouped) below the
+        // named groups, so the unnamed section trails them.
         Assert.Equal(
-            new string?[] { null, "Beta", "Alpha", "Zeta" },
+            new string?[] { "Beta", "Alpha", "Zeta", null },
             sections.Select(s => s.GroupName));
-        Assert.Equal(new[] { "u" }, sections[0].Sessions.Select(s => s.Key));
-        Assert.Equal(new[] { "a1", "a2" }, sections[2].Sessions.Select(s => s.Key));
+        Assert.Equal(new[] { "u" }, sections[^1].Sessions.Select(s => s.Key));
+        Assert.Equal(new[] { "a1", "a2" }, sections[1].Sessions.Select(s => s.Key));
     }
 
     [Fact]
@@ -46,7 +48,7 @@ public sealed class WorkspaceSessionSectionsTests
         var sections = WorkspaceSessionSections.Build(
             new[] { Session("a", "Live") }, new[] { "Empty", "Live" });
 
-        Assert.Equal(new string?[] { null, "Live" }, sections.Select(s => s.GroupName));
+        Assert.Equal(new string?[] { "Live", null }, sections.Select(s => s.GroupName));
     }
 
     [Fact]
@@ -56,6 +58,6 @@ public sealed class WorkspaceSessionSectionsTests
 
         var sections = WorkspaceSessionSections.Build(sessions, new[] { "G" });
 
-        Assert.Equal(new[] { "u2", "u1" }, sections[0].Sessions.Select(s => s.Key));
+        Assert.Equal(new[] { "u2", "u1" }, sections[^1].Sessions.Select(s => s.Key));
     }
 }
