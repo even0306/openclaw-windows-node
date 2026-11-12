@@ -1106,7 +1106,7 @@ public sealed partial class WorkspaceWindow : WindowEx
                 return;
             dragPressed = false;
             if (s is UIElement element)
-                _ = element.StartDragAsync(e);
+                _ = element.StartDragAsync(e.GetCurrentPoint(element));
         };
         item.PointerReleased += (_, _) => dragPressed = false;
         item.PointerCanceled += (_, _) => dragPressed = false;
