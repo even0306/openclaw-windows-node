@@ -218,6 +218,34 @@ internal sealed class ChatComposerViewModel : INotifyPropertyChanged, IDisposabl
         });
     }
 
+    /// <summary>
+    /// Applies an edit that already reached the TextBox natively (typing). The
+    /// TextBox owns the display of its own text, so a plain keystroke changes
+    /// nothing this view model renders; notify only when render-visible state
+    /// (slash display, or the <see cref="CanSend"/> draft gate) actually changes,
+    /// keeping fast typing off the full-composer render path. External writers
+    /// (voice transcripts, draft restore, clear-after-send) keep using
+    /// <see cref="SetDraft"/>, which always notifies.
+    /// </summary>
+    internal void SetDraftFromInput(string value)
+    {
+        MutateIfChanged(() =>
+        {
+            var hadSendableDraft = _draft.Trim().Length > 0;
+            _draftRevision++;
+            _dismissedSlashInputRevision = null;
+            _draft = value;
+            _slashMenuState = ReactorSlashCommandController.ReconcileState(
+                _draft,
+                _inputs?.AvailableCommands,
+                _slashMenuState);
+            var previous = SlashDisplay;
+            RecomputeSlashDisplay();
+            return !Equals(previous, SlashDisplay)
+                || hadSendableDraft != (_draft.Trim().Length > 0);
+        });
+    }
+
     public void ClearDraft()
     {
         Mutate(() => ApplyClearDraft());
