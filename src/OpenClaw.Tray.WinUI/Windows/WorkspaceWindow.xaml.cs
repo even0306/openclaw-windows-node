@@ -41,6 +41,7 @@ public sealed partial class WorkspaceWindow : WindowEx
     private readonly FlyoutShowRequest _workspaceSearchShow;
     // Sidebar rows keyed by session key; SyncSessionItems keeps MenuItems in step with these.
     private readonly Dictionary<string, NavigationViewItem> _sessionItems = new(StringComparer.Ordinal);
+    private List<string> _lastRenderedSessionKeys = new();
     // Custom sidebar group headers keyed by group name, reconciled by the same section sync.
     private readonly Dictionary<string, NavigationViewItemHeader> _sessionGroupHeaders = new(StringComparer.Ordinal);
     // Group sections the user collapsed; the header row stays so it can be re-expanded.
@@ -759,7 +760,10 @@ public sealed partial class WorkspaceWindow : WindowEx
         RestoreAssistantSelection();
         AssistantSelector.PlaceholderText = Text(agents.Count == 0 ? "NoAgents" : "SelectAssistant");
         IReadOnlyList<WorkspaceSession> sessions = _agentSelection.HasSessionAccess
-            ? WorkspaceProjection.Sessions(_state.Sessions, SelectedAgentId, _sessionOrder, CurrentApp.GatewayClient?.MainSessionKey) : [];
+            ? WorkspaceSessionManualOrder.Apply(
+                WorkspaceProjection.Sessions(_state.Sessions, SelectedAgentId, _sessionOrder, CurrentApp.GatewayClient?.MainSessionKey),
+                CurrentApp.Settings?.SessionOrderKeys,
+                session => session.Key) : [];
         SyncSessionItems(_sessionItems, sessions, "WorkspaceSession", NavView.MenuItems.IndexOf(SessionsEmpty) + 1);
         SessionsEmpty.Content = Text("NoSessions");
         SessionsEmpty.Visibility = sessions.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -848,6 +852,7 @@ public sealed partial class WorkspaceWindow : WindowEx
             : sections;
         var desired = new List<object>(sessions.Count + allSections.Count);
         var keys = new HashSet<string>(StringComparer.Ordinal);
+        var renderedKeys = new List<string>();
         var renderedGroups = new HashSet<string>(StringComparer.Ordinal);
         foreach (var section in allSections)
         {
@@ -862,6 +867,7 @@ public sealed partial class WorkspaceWindow : WindowEx
             foreach (var session in section.Sessions)
             {
                 keys.Add(session.Key);
+                renderedKeys.Add(session.Key);
                 if (cache.TryGetValue(session.Key, out var item))
                 {
                     if (!Equals(item.Tag, session))
@@ -887,6 +893,7 @@ public sealed partial class WorkspaceWindow : WindowEx
             _sessionGroupHeaders.Remove(groupName);
         }
         WorkspaceItemsSync.Arrange(NavView.MenuItems, start, desired);
+        _lastRenderedSessionKeys = renderedKeys;
     }
 
     /// <summary>
@@ -991,6 +998,11 @@ public sealed partial class WorkspaceWindow : WindowEx
         if (!string.Equals(dragged.Group, target.Group, StringComparison.Ordinal)
             && !await SetSessionGroupAsync(draggedKey, target.Group))
             return;
+        // The client-local order lands immediately even when the shared
+        // sidebar-entries write is rejected; the shared sync stays best effort
+        // so the web UI order still interops when the gateway accepts it.
+        ApplyLocalSessionOrder(draggedKey, target.Key);
+        RefreshSidebar();
         await MoveSidebarEntryAsync(draggedKey, target.Key);
     }
 
@@ -1058,6 +1070,17 @@ public sealed partial class WorkspaceWindow : WindowEx
             ReportError("session-move-group", ex);
             return false;
         }
+    }
+
+    /// <summary>Applies a drag move to the client-local manual order so session
+    /// reordering works even when the shared sidebar-entries write is rejected.</summary>
+    private void ApplyLocalSessionOrder(string draggedKey, string? targetKey, bool after = false)
+    {
+        if (CurrentApp.Settings is not { } settings)
+            return;
+        settings.SessionOrderKeys = WorkspaceSessionManualOrder.Move(
+            settings.SessionOrderKeys, _lastRenderedSessionKeys, draggedKey, targetKey, after);
+        settings.Save();
     }
 
     /// <summary>Writes a reorder into the shared sidebar entries list (the web UI's order store).</summary>

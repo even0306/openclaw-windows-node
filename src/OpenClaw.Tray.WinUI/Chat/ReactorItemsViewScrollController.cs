@@ -737,10 +737,10 @@ file sealed class InitialTailPositioner : IDisposable
         _offsetCorrectionAnchorRequested = null;
     }
 
-    // A reader scrolling away from the tail must not fight the bottom anchor:
-    // virtualized remeasures would pull the offset back down, lag the thumb
-    // behind the pointer and make the page jump. Anchoring only resumes once
-    // the viewport is glued to the tail again.
+    // A reader scrolling away from the tail must not fight ANY scroll anchoring:
+    // virtualized remeasures adjust the offset, which lags the thumb behind the
+    // pointer and makes the scrollbar jitter. Anchoring (bottom glue) only
+    // resumes once the viewport is back on the tail.
     private void SuppressTailAnchor(WinUIScrollView scrollView)
     {
         if (_tailAnchorSuppressed || _disclosureAnchored || _readerAnchored
@@ -748,7 +748,7 @@ file sealed class InitialTailPositioner : IDisposable
             return;
 
         _tailAnchorSuppressed = true;
-        scrollView.VerticalAnchorRatio = 0;
+        scrollView.VerticalAnchorRatio = double.NaN;
     }
 
     private void RestoreTailAnchorAtTail(WinUIScrollView scrollView)

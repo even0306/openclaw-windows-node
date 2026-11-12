@@ -326,6 +326,7 @@
     <Compile Include="..\..\src\OpenClaw.Tray.WinUI\Presentation\WorkspaceItemsSync.cs" Link="Presentation\WorkspaceItemsSync.cs" />
     <Compile Include="..\..\src\OpenClaw.Tray.WinUI\Presentation\WorkspaceSessionMenu.cs" Link="Presentation\WorkspaceSessionMenu.cs" />
     <Compile Include="..\..\src\OpenClaw.Tray.WinUI\Presentation\WorkspaceSessionSections.cs" Link="Presentation\WorkspaceSessionSections.cs" />
+    <Compile Include="..\..\src\OpenClaw.Tray.WinUI\Presentation\WorkspaceSessionManualOrder.cs" Link="Presentation\WorkspaceSessionManualOrder.cs" />
     <Compile Include="..\..\src\OpenClaw.Tray.WinUI\Presentation\WorkspaceSidebarEntries.cs" Link="Presentation\WorkspaceSidebarEntries.cs" />
     <Compile Include="..\..\src\OpenClaw.Tray.WinUI\Services\WorkspaceIdentitySource.cs" Link="Services\WorkspaceIdentitySource.cs" />
     <Compile Include="..\..\src\OpenClaw.Tray.WinUI\Services\HubCommandExecutor.cs" Link="Services\HubCommandExecutor.cs" />
