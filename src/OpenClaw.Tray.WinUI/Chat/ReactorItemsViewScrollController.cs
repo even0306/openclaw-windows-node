@@ -136,6 +136,8 @@ file sealed class InitialTailPositioner : IDisposable
     private readonly TypedEventHandler<UIElement, GettingFocusEventArgs> _readerGettingFocus;
     private bool _disclosureAnchored;
     private bool _readerAnchored;
+    private bool _tailAnchorSuppressed;
+    private bool _mouseScrolling;
     private int? _readerBringCorrelationId;
     private TypedEventHandler<WinUIScrollView, ScrollingAnchorRequestedEventArgs>? _offsetCorrectionAnchorRequested;
     private bool _awaitingIdle;
@@ -234,7 +236,7 @@ file sealed class InitialTailPositioner : IDisposable
             return;
         }
 
-        if (changed && itemsView.IsLoaded
+        if (changed && itemsView.IsLoaded && !_mouseScrolling
             && TailNavigationPolicy.CanFollowTail(_following, _initialPending))
         {
             QueueTailRequest(_version, request);
@@ -665,12 +667,18 @@ file sealed class InitialTailPositioner : IDisposable
     private void OnScrollStateChanged(WinUIScrollView sender, object args)
     {
         if (sender.State == ScrollingInteractionState.Interaction)
+        {
             CancelPendingNavigation();
+            SuppressTailAnchor(sender);
+        }
         else if (_awaitingIdle && sender.State == ScrollingInteractionState.Idle)
         {
             _awaitingIdle = false;
             AwaitLayout(renderAfterLayout: true);
         }
+
+        if (sender.State == ScrollingInteractionState.Idle)
+            RestoreTailAnchorAtTail(sender);
     }
 
     private void OnNavigationKeyDown(object sender, KeyRoutedEventArgs args) =>
@@ -689,6 +697,8 @@ file sealed class InitialTailPositioner : IDisposable
             _disclosureAnchored = true;
             scrollView.VerticalAnchorRatio = 0;
         }
+        else if (_scrollView is { } reading && !IsAtBottom(reading))
+            SuppressTailAnchor(reading);
     }
 
     private bool IsDisclosureHeader(object? source)
@@ -707,9 +717,11 @@ file sealed class InitialTailPositioner : IDisposable
     private void RestoreTailAnchor()
     {
         _readerBringCorrelationId = null;
-        if (!_disclosureAnchored && !_readerAnchored && _offsetCorrectionAnchorRequested is null)
+        if (!_disclosureAnchored && !_readerAnchored && _offsetCorrectionAnchorRequested is null
+            && !_tailAnchorSuppressed)
             return;
 
+        _tailAnchorSuppressed = false;
         _disclosureAnchored = false;
         _readerAnchored = false;
         if (_scrollView is not null)
@@ -721,6 +733,26 @@ file sealed class InitialTailPositioner : IDisposable
         _offsetCorrectionAnchorRequested = null;
     }
 
+    // A reader scrolling away from the tail must not fight the bottom anchor:
+    // virtualized remeasures would pull the offset back down, lag the thumb
+    // behind the pointer and make the page jump. Anchoring only resumes once
+    // the viewport is glued to the tail again.
+    private void SuppressTailAnchor(WinUIScrollView scrollView)
+    {
+        if (_tailAnchorSuppressed || _disclosureAnchored || _readerAnchored
+            || _offsetCorrectionAnchorRequested is not null)
+            return;
+
+        _tailAnchorSuppressed = true;
+        scrollView.VerticalAnchorRatio = 0;
+    }
+
+    private void RestoreTailAnchorAtTail(WinUIScrollView scrollView)
+    {
+        if (_tailAnchorSuppressed && _readerBringCorrelationId is null && IsAtBottom(scrollView))
+            RestoreTailAnchor();
+    }
+
     private void OnReaderFocus(UIElement sender, GettingFocusEventArgs args)
     {
         if (args.FocusState == FocusState.Keyboard)
@@ -730,8 +762,18 @@ file sealed class InitialTailPositioner : IDisposable
     private void OnControllerMouseChanged(
         Microsoft.UI.Xaml.Controls.Primitives.IScrollController sender, object args)
     {
+        _mouseScrolling = sender.IsScrollingWithMouse;
         if (sender.IsScrollingWithMouse)
             CancelPendingNavigation();
+        if (_scrollView is not { } scrollView)
+            return;
+
+        if (sender.IsScrollingWithMouse)
+            SuppressTailAnchor(scrollView);
+        else if (IsAtBottom(scrollView))
+            RestoreTailAnchorAtTail(scrollView);
+        else
+            SuppressTailAnchor(scrollView);
     }
 
     private void CancelPendingNavigation()
@@ -782,6 +824,7 @@ file sealed class InitialTailPositioner : IDisposable
                 || _disposed
                 || !_valid
                 || !itemsView.IsLoaded
+                || _mouseScrolling
                 || !TailNavigationPolicy.CanFollowTail(_following, _initialPending))
             {
                 return;
@@ -973,6 +1016,8 @@ file sealed class InitialTailPositioner : IDisposable
         _scrollView = null;
         _disclosureAnchored = false;
         _readerAnchored = false;
+        _tailAnchorSuppressed = false;
+        _mouseScrolling = false;
         _readerBringCorrelationId = null;
         _offsetCorrectionAnchorRequested = null;
         _reportedAtTail = null;
