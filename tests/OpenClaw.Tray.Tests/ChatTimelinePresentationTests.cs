@@ -240,6 +240,54 @@ public sealed class ChatTimelinePresentationTests
     }
 
     [Fact]
+    public void ReactorTimeline_ReaderScrollingSuppressesTheTailAnchorUntilTheTailReturns()
+    {
+        var binding = File.ReadAllText(Path.Combine(
+            TestRepositoryPaths.GetRepositoryRoot(),
+            "src",
+            "OpenClaw.Tray.WinUI",
+            "Chat",
+            "ReactorItemsViewScrollController.cs"));
+        string Slice(string start, string end)
+        {
+            var from = binding.IndexOf(start, StringComparison.Ordinal);
+            var to = binding.IndexOf(end, from, StringComparison.Ordinal);
+            Assert.True(from >= 0 && to > from, $"Missing {start}..{end}");
+            return binding[from..to];
+        }
+
+        // A scrollbar drag or reader scrolling away from the tail suppresses the
+        // bottom anchor so virtualized remeasures cannot pull the offset back
+        // down, lag the thumb behind the pointer or make the page jump.
+        Assert.Contains("private bool _tailAnchorSuppressed;", binding);
+        Assert.Contains("private bool _mouseScrolling;", binding);
+        Assert.Contains("SuppressTailAnchor(", binding);
+        Assert.Contains("RestoreTailAnchorAtTail(", binding);
+
+        var mouse = Slice("private void OnControllerMouseChanged", "private void CancelPendingNavigation");
+        Assert.Contains("if (sender.IsScrollingWithMouse)", mouse);
+        Assert.Contains("SuppressTailAnchor(scrollView);", mouse);
+        Assert.Contains("RestoreTailAnchorAtTail(scrollView);", mouse);
+
+        var state = Slice("private void OnScrollStateChanged", "private void OnNavigationKeyDown");
+        Assert.Contains("SuppressTailAnchor(sender);", state);
+        Assert.Contains("RestoreTailAnchorAtTail(sender);", state);
+
+        // Tail-follow requests are dropped while the scrollbar is mouse-dragged.
+        Assert.Contains("&& !_mouseScrolling", binding);
+        Assert.Contains("|| _mouseScrolling", binding);
+
+        // Anchoring resumes only on the tail and the suppression is released
+        // with the rest of the anchor state.
+        var restore = Slice("private void RestoreTailAnchor()", "private void OnReaderFocus");
+        Assert.Contains("&& !_tailAnchorSuppressed)", restore);
+        Assert.Contains("_tailAnchorSuppressed = false;", restore);
+        var detach = Slice("private void DetachScrollView", "public void Dispose");
+        Assert.Contains("_tailAnchorSuppressed = false;", detach);
+        Assert.Contains("_mouseScrolling = false;", detach);
+    }
+
+    [Fact]
     public void ReactorTimeline_NeverUsesSynchronousItemsViewBring()
     {
         var binding = File.ReadAllText(Path.Combine(
