@@ -352,10 +352,12 @@ public sealed partial class SessionsPage : Page
             ApplyFilter();
     }
 
-    private void OnSessionMenuOpening(Microsoft.UI.Xaml.Controls.MenuFlyout sender, object args)
+    private void OnSessionMenuOpening(object sender, object e)
     {
-        var vm = sender.Target is FrameworkElement target ? ResolveSessionVm(target) : null;
-        foreach (var sub in sender.Items.OfType<MenuFlyoutSubItem>().Where(item => Equals(item.Tag, "MoveToGroup")))
+        if (sender is not MenuFlyout flyout)
+            return;
+        var vm = flyout.Target is FrameworkElement target ? ResolveSessionVm(target) : null;
+        foreach (var sub in flyout.Items.OfType<MenuFlyoutSubItem>().Where(item => Equals(item.Tag, "MoveToGroup")))
         {
             sub.Text = LocalizationHelper.GetString("WorkspaceShell_SessionMenu_MoveToGroup");
             PopulateMoveToGroup(sub, vm);
