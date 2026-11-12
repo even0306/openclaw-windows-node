@@ -1908,6 +1908,33 @@ public partial class OpenClawGatewayClient : WebSocketClientBase, IOperatorGatew
             : new SessionGroupCatalog(groups, sectionOrder);
     }
 
+    /// <summary>
+    /// Replaces the ordered custom sidebar group catalog (<c>sessions.groups.put</c>).
+    /// Pass the complete name list in the new order; the current section order is
+    /// forwarded unchanged so a plain reorder never resets sidebar sections.
+    /// </summary>
+    public async Task<bool> PutSessionGroupsAsync(
+        IReadOnlyList<string> names, IReadOnlyList<string>? sectionOrder = null, int timeoutMs = 15000)
+    {
+        if (names.Count == 0) return false;
+        try
+        {
+            var payload = await SendWizardRequestAsync("sessions.groups.put",
+                sectionOrder is { Count: > 0 }
+                    ? new { names, sectionOrder }
+                    : new { names },
+                timeoutMs);
+            return payload.ValueKind == JsonValueKind.Object
+                && payload.TryGetProperty("ok", out var ok)
+                && ok.ValueKind == JsonValueKind.True;
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn($"sessions.groups.put failed: {ex.Message}");
+            return false;
+        }
+    }
+
     /// <summary>Request usage/context info from gateway (may not be supported on all gateways).</summary>
     public async Task RequestUsageAsync()
     {

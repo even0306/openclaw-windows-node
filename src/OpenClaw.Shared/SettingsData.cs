@@ -192,6 +192,12 @@ public record class SettingsData
     /// completed ACP/subagent clutter for upgraded installs.
     /// </summary>
     public bool ShowCompletedSessions { get; set; } = false;
+    /// <summary>
+    /// Manual sidebar order for session rows (drag-to-reorder): session keys in
+    /// display order. Client-local per device; rows without a key keep the
+    /// natural (pinned-first, creation) order after the manually ordered rows.
+    /// </summary>
+    public List<string>? SessionOrderKeys { get; set; }
     public string AppTheme { get; set; } = "System";
     public bool? ShowDiagnostics { get; set; }
     /// <summary>

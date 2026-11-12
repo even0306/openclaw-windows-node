@@ -121,6 +121,14 @@ public interface IOperatorGatewayClient
     /// </summary>
     Task<SessionGroupCatalog> RequestSessionGroupsAsync(int timeoutMs = 15000)
         => Task.FromResult(SessionGroupCatalog.Empty);
+    /// <summary>
+    /// Replaces the ordered custom sidebar group catalog (<c>sessions.groups.put</c>),
+    /// e.g. after a drag reorder. Defaults to false so adding it does not
+    /// source-break external implementers (test doubles).
+    /// </summary>
+    Task<bool> PutSessionGroupsAsync(
+        IReadOnlyList<string> names, IReadOnlyList<string>? sectionOrder = null, int timeoutMs = 15000)
+        => Task.FromResult(false);
     Task RequestUsageAsync();
     Task RequestNodesAsync();
     Task RequestUsageStatusAsync();

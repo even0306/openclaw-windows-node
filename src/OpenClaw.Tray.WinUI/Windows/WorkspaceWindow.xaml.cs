@@ -16,6 +16,7 @@ using OpenClawTray.Helpers;
 using OpenClawTray.Pages;
 using OpenClawTray.Presentation;
 using OpenClawTray.Services;
+using Windows.ApplicationModel.DataTransfer;
 using WinUIEx;
 
 namespace OpenClawTray.Windows;
@@ -44,6 +45,11 @@ public sealed partial class WorkspaceWindow : WindowEx
     private readonly Dictionary<string, NavigationViewItemHeader> _sessionGroupHeaders = new(StringComparer.Ordinal);
     // Group sections the user collapsed; the header row stays so it can be re-expanded.
     private readonly HashSet<string> _collapsedSessionGroups = new(StringComparer.Ordinal);
+    // Display order of the session rows rendered by the last section sync, used
+    // as the base for drag-to-reorder moves.
+    private List<string> _lastRenderedSessionKeys = new();
+    // Payload of the drag started inside this sidebar ("session:<key>" / "group:<name>").
+    private string? _dragPayload;
     // Catalog from sessions.groups.list; empty until loaded, which keeps the sidebar flat.
     private SessionGroupCatalog _sessionGroups = SessionGroupCatalog.Empty;
     private bool _sessionGroupsLoaded;
@@ -753,7 +759,11 @@ public sealed partial class WorkspaceWindow : WindowEx
         RestoreAssistantSelection();
         AssistantSelector.PlaceholderText = Text(agents.Count == 0 ? "NoAgents" : "SelectAssistant");
         IReadOnlyList<WorkspaceSession> sessions = _agentSelection.HasSessionAccess
-            ? WorkspaceProjection.Sessions(_state.Sessions, SelectedAgentId, _sessionOrder, CurrentApp.GatewayClient?.MainSessionKey) : [];
+            ? WorkspaceSessionManualOrder.Apply(
+                WorkspaceProjection.Sessions(_state.Sessions, SelectedAgentId, _sessionOrder, CurrentApp.GatewayClient?.MainSessionKey),
+                CurrentApp.Settings?.SessionOrderKeys,
+                session => session.Key)
+            : [];
         SyncSessionItems(_sessionItems, sessions, "WorkspaceSession", NavView.MenuItems.IndexOf(SessionsEmpty) + 1);
         SessionsEmpty.Content = Text("NoSessions");
         SessionsEmpty.Visibility = sessions.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -827,6 +837,7 @@ public sealed partial class WorkspaceWindow : WindowEx
         var desired = new List<object>(sessions.Count + sections.Count);
         var keys = new HashSet<string>(StringComparer.Ordinal);
         var renderedGroups = new HashSet<string>(StringComparer.Ordinal);
+        var renderedKeys = new List<string>(sessions.Count);
         foreach (var section in sections)
         {
             if (section.GroupName is { } groupName)
@@ -840,6 +851,7 @@ public sealed partial class WorkspaceWindow : WindowEx
             foreach (var session in section.Sessions)
             {
                 keys.Add(session.Key);
+                renderedKeys.Add(session.Key);
                 if (cache.TryGetValue(session.Key, out var item))
                 {
                     if (!Equals(item.Tag, session))
@@ -865,6 +877,7 @@ public sealed partial class WorkspaceWindow : WindowEx
             _sessionGroupHeaders.Remove(groupName);
         }
         WorkspaceItemsSync.Arrange(NavView.MenuItems, start, desired);
+        _lastRenderedSessionKeys = renderedKeys;
     }
 
     /// <summary>
@@ -893,6 +906,48 @@ public sealed partial class WorkspaceWindow : WindowEx
             if (e.Key is global::Windows.System.VirtualKey.Space or global::Windows.System.VirtualKey.Enter)
                 ToggleSessionGroup(groupName);
         };
+        header.Tag = groupName;
+        header.CanDrag = true;
+        header.AllowDrop = true;
+        header.DragStarting += (s, e) =>
+        {
+            if (s is FrameworkElement { Tag: string name })
+            {
+                _dragPayload = "group:" + name;
+                e.Data.SetText(_dragPayload);
+                e.Data.RequestedOperation = DataPackageOperation.Move;
+            }
+        };
+        header.DragOver += (s, e) =>
+        {
+            if (_dragPayload is null || (s as FrameworkElement)?.Tag is not string targetName)
+                return;
+            if (_dragPayload.StartsWith("session:", StringComparison.Ordinal)
+                || _dragPayload.StartsWith("group:", StringComparison.Ordinal)
+                    && !string.Equals(_dragPayload["group:".Length..], targetName, StringComparison.Ordinal))
+            {
+                e.AcceptedOperation = DataPackageOperation.Move;
+            }
+        };
+        header.Drop += (s, _) =>
+        {
+            if ((s as FrameworkElement)?.Tag is not string targetName)
+                return;
+            var payload = _dragPayload;
+            _dragPayload = null;
+            if (payload is null)
+                return;
+            if (payload.StartsWith("session:", StringComparison.Ordinal))
+                AsyncEventHandlerGuard.Run(
+                    () => DropSessionAtHeaderAsync(payload["session:".Length..], targetName),
+                    new AppLogger(),
+                    nameof(DropSessionAtHeaderAsync));
+            else if (payload.StartsWith("group:", StringComparison.Ordinal))
+                AsyncEventHandlerGuard.Run(
+                    () => ReorderSessionGroupsAsync(payload["group:".Length..], targetName),
+                    new AppLogger(),
+                    nameof(ReorderSessionGroupsAsync));
+        };
         _sessionGroupHeaders[groupName] = header;
         return header;
     }
@@ -913,11 +968,140 @@ public sealed partial class WorkspaceWindow : WindowEx
         RefreshSidebar();
     }
 
+    private WorkspaceSession? FindRenderedSession(string key) =>
+        _sessionItems.TryGetValue(key, out var item) && item.Tag is WorkspaceSession session ? session : null;
+
+    /// <summary>Drag of a session row onto another row: join its group when needed, then reorder.</summary>
+    private async Task DropSessionAtRowAsync(string draggedKey, WorkspaceSession target)
+    {
+        if (string.Equals(draggedKey, target.Key, StringComparison.Ordinal))
+            return;
+        var dragged = FindRenderedSession(draggedKey);
+        if (dragged is null)
+            return;
+        if (!string.Equals(dragged.Group, target.Group, StringComparison.Ordinal)
+            && !await SetSessionGroupAsync(draggedKey, target.Group))
+            return;
+        SaveManualMove(draggedKey, target.Key);
+        RefreshSidebar();
+    }
+
+    /// <summary>Drag of a session row onto a group header: move the session into that group.</summary>
+    private async Task DropSessionAtHeaderAsync(string draggedKey, string groupName)
+    {
+        var dragged = FindRenderedSession(draggedKey);
+        if (dragged is null)
+            return;
+        if (!string.Equals(dragged.Group, groupName, StringComparison.Ordinal)
+            && !await SetSessionGroupAsync(draggedKey, groupName))
+            return;
+        SaveManualMove(draggedKey, targetKey: null);
+        RefreshSidebar();
+    }
+
+    /// <summary>Drag of a group header onto another group (or a row of one): reorder the catalog.</summary>
+    private async Task ReorderSessionGroupsAsync(string draggedGroup, string? targetGroup)
+    {
+        if (string.Equals(draggedGroup, targetGroup, StringComparison.Ordinal))
+            return;
+        var names = _sessionGroups.GroupNames.ToList();
+        names.Remove(draggedGroup);
+        var index = targetGroup is null ? names.Count : names.IndexOf(targetGroup);
+        if (index < 0)
+            index = names.Count;
+        names.Insert(index, draggedGroup);
+        if (names.SequenceEqual(_sessionGroups.GroupNames, StringComparer.Ordinal))
+            return;
+        var client = CurrentApp.GatewayClient;
+        if (client is not { IsConnectedToGateway: true })
+            return;
+        if (await client.PutSessionGroupsAsync(names, _sessionGroups.SectionOrder))
+            await RefreshSessionGroupsAsync();
+    }
+
+    private async Task<bool> SetSessionGroupAsync(string key, string? group)
+    {
+        var client = CurrentApp.GatewayClient;
+        if (client is not { IsConnectedToGateway: true })
+            return false;
+        var operation = new WorkspaceSessionOperation(client, () => CurrentApp.GatewayClient);
+        try
+        {
+            var patch = new SessionPatch();
+            if (group is null)
+                patch.Category = SessionPatch.Clear;
+            else
+                patch.Category = group;
+            await operation.PatchAsync(key, patch);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            ReportError("session-move-group", ex);
+            return false;
+        }
+    }
+
+    private void SaveManualMove(string draggedKey, string? targetKey, bool after = false)
+    {
+        if (CurrentApp.Settings is not { } settings)
+            return;
+        settings.SessionOrderKeys = WorkspaceSessionManualOrder.Move(
+            settings.SessionOrderKeys, _lastRenderedSessionKeys, draggedKey, targetKey, after);
+        settings.Save();
+    }
+
     private NavigationViewItem CreateSessionItem(WorkspaceSession session, string automationPrefix)
     {
         var item = new NavigationViewItem();
         AutomationProperties.SetAutomationId(item, $"{automationPrefix}:{session.Key}");
         ApplySessionItem(item, session);
+        item.CanDrag = true;
+        item.AllowDrop = true;
+        item.DragStarting += (s, e) =>
+        {
+            if (s is FrameworkElement { Tag: WorkspaceSession dragged })
+            {
+                _dragPayload = "session:" + dragged.Key;
+                e.Data.SetText(_dragPayload);
+                e.Data.RequestedOperation = DataPackageOperation.Move;
+            }
+        };
+        item.DragOver += (s, e) =>
+        {
+            if (_dragPayload is null || (s as FrameworkElement)?.Tag is not WorkspaceSession target)
+                return;
+            if (_dragPayload.StartsWith("session:", StringComparison.Ordinal))
+            {
+                if (!string.Equals(_dragPayload["session:".Length..], target.Key, StringComparison.Ordinal))
+                    e.AcceptedOperation = DataPackageOperation.Move;
+            }
+            else if (_dragPayload.StartsWith("group:", StringComparison.Ordinal)
+                && target.Group is not null
+                && !string.Equals(_dragPayload["group:".Length..], target.Group, StringComparison.Ordinal))
+            {
+                e.AcceptedOperation = DataPackageOperation.Move;
+            }
+        };
+        item.Drop += (s, _) =>
+        {
+            if ((s as FrameworkElement)?.Tag is not WorkspaceSession target)
+                return;
+            var payload = _dragPayload;
+            _dragPayload = null;
+            if (payload is null)
+                return;
+            if (payload.StartsWith("session:", StringComparison.Ordinal))
+                AsyncEventHandlerGuard.Run(
+                    () => DropSessionAtRowAsync(payload["session:".Length..], target),
+                    new AppLogger(),
+                    nameof(DropSessionAtRowAsync));
+            else if (payload.StartsWith("group:", StringComparison.Ordinal))
+                AsyncEventHandlerGuard.Run(
+                    () => ReorderSessionGroupsAsync(payload["group:".Length..], target.Group),
+                    new AppLogger(),
+                    nameof(ReorderSessionGroupsAsync));
+        };
         return item;
     }
 
