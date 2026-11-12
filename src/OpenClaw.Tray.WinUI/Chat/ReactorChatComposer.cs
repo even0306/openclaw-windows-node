@@ -430,7 +430,7 @@ internal sealed class ReactorChatComposer : Component<ReactorChatComposerViewPro
         var transparentInputBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
         var input = OpenClawTray.Automations.AutomationTextInput.TextBox(
                 () => vm.Draft,
-                vm.SetDraft,
+                vm.SetDraftFromInput,
                 PlaceholderFor(inputs.ConnectionState))
             .AutomationId("ChatComposerInput")
             .AutomationName(PlaceholderFor(inputs.ConnectionState))

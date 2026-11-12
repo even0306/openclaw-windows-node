@@ -21,6 +21,9 @@ public sealed class ComposerDraftBindingTests
         var src = ReadSource("src", "OpenClaw.Tray.WinUI", "Chat", "ReactorChatComposer.cs");
         Assert.Contains("AutomationTextInput.TextBox(", src);
         Assert.Contains("() => vm.Draft", src);
+        // Typing goes through the no-render echo path; only external draft
+        // writers use the always-notify SetDraft.
+        Assert.Contains("vm.SetDraftFromInput", src);
     }
 
     [Fact]
