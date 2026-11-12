@@ -113,6 +113,53 @@ public sealed class ChatComposerViewModelTests
         Assert.Equal(1, vm.DraftRevision);
     }
 
+    [Fact]
+    public void SetDraftFromInput_PlainTyping_KeepsTypingOffTheRenderPath()
+    {
+        using var vm = new ChatComposerViewModel(new RecordingUiDispatcher(), false);
+        vm.ApplyInputs(MakeInputs());
+
+        vm.SetDraftFromInput("n");                 // empty -> sendable gate flips: notifies once
+        var afterFirst = vm.RenderRevision;
+        Assert.True(afterFirst > 0);
+        Assert.True(vm.CanSend);
+
+        vm.SetDraftFromInput("ni");                // plain typing: no render-visible change
+        vm.SetDraftFromInput("nihao");
+
+        Assert.Equal(afterFirst, vm.RenderRevision);
+        Assert.Equal("nihao", vm.Draft);
+        Assert.Equal(3, vm.DraftRevision);         // every accepted edit still bumps the revision
+    }
+
+    [Fact]
+    public void SetDraftFromInput_SendableGateFlip_Notifies()
+    {
+        using var vm = new ChatComposerViewModel(new RecordingUiDispatcher(), false);
+        vm.ApplyInputs(MakeInputs());
+
+        vm.SetDraftFromInput("x");
+        var one = vm.RenderRevision;
+        vm.SetDraftFromInput(" ");                 // trim gate closes again: notifies
+
+        Assert.Equal(one + 1, vm.RenderRevision);
+        Assert.False(vm.CanSend);
+    }
+
+    [Fact]
+    public void SetDraft_ExternalWriter_AlwaysNotifies()
+    {
+        using var vm = new ChatComposerViewModel(new RecordingUiDispatcher(), false);
+        vm.ApplyInputs(MakeInputs());
+        var baseline = vm.RenderRevision;
+
+        vm.SetDraft("voice");                      // voice transcript / restore / clear path
+        vm.SetDraft("voice more");
+
+        Assert.Equal(baseline + 2, vm.RenderRevision);
+        Assert.Equal("voice more", vm.Draft);
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
