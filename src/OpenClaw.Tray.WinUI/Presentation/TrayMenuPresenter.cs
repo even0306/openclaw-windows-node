@@ -89,6 +89,40 @@ internal sealed class TrayMenuPresenter
             ConnectionTogglePresenter.Present(_snapshot.CurrentStatus, _snapshot.OverallState));
     }
 
+    /// <summary>
+    /// Minimal menu used when snapshot capture or presentation fails, or when a
+    /// projection yields no rows. Guarantees the tray popup is never empty so the
+    /// user can still open the hub or close the app from a degraded state. Rows
+    /// intentionally carry no icon identity so they render even when icon
+    /// resources degrade.
+    /// </summary>
+    internal static TrayMenuPresentation Fallback()
+    {
+        var items = ImmutableArray.Create(
+            new TrayMenuElement
+            {
+                Kind = TrayMenuElementKind.Action,
+                Text = "Open OpenClaw",
+                ActionId = "hub",
+                AutomationName = "Open OpenClaw",
+            },
+            new TrayMenuElement
+            {
+                Kind = TrayMenuElementKind.Action,
+                Text = "Close",
+                ActionId = "exit",
+                AutomationName = "Close",
+            });
+
+        return new TrayMenuPresentation(
+            items,
+            new ConnectionTogglePresentation(
+                IsOn: false,
+                IsEnabled: false,
+                ToolTip: "Connection status unavailable",
+                AutomationName: "Gateway connection"));
+    }
+
     private TrayMenuElement BuildDashboardGlance()
     {
         var summary = new TrayDashboardSummaryBuilder(_snapshot, _nowUtc).Build();

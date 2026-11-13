@@ -9,6 +9,20 @@ public sealed class TrayMenuPresenterTests
 {
     private static readonly DateTime NowUtc = new(2026, 8, 2, 19, 0, 0, DateTimeKind.Utc);
 
+    [Fact]
+    public void Fallback_GuaranteesOpenAndCloseRowsWithoutIconDependencies()
+    {
+        var presentation = TrayMenuPresenter.Fallback();
+
+        Assert.Contains(presentation.Items, item =>
+            item.Kind == TrayMenuElementKind.Action && item.ActionId == "hub");
+        Assert.Contains(presentation.Items, item =>
+            item.Kind == TrayMenuElementKind.Action && item.ActionId == "exit");
+        Assert.All(presentation.Items, item => Assert.Equal(TrayMenuIconIdentity.None, item.Icon));
+        Assert.All(presentation.Items, item => Assert.False(string.IsNullOrWhiteSpace(item.Text)));
+        Assert.False(presentation.ConnectionToggle.IsEnabled);
+    }
+
     [Theory]
     [InlineData(null, ConnectionStatus.Connected, true, true, "Connected - toggle off to disconnect")]
     [InlineData(null, ConnectionStatus.Connecting, true, false, "Connecting - toggle off to disconnect")]

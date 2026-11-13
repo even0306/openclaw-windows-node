@@ -195,8 +195,35 @@ internal sealed class TrayController : ITrayController
 
             var menu = _trayMenuWindow!;
             _connectionToggleRef = null;
+
+            // Build the presentation before clearing the visible menu so a
+            // failed snapshot can never wipe the popup into an empty state.
+            var presentation = BuildTrayMenuPresentation();
             menu.ClearItems();
-            BuildTrayMenuPopup(menu);
+            try
+            {
+                RenderTrayMenuPopup(menu, presentation);
+            }
+            catch (Exception ex)
+            {
+                _callbacks.LogCrash("RenderTrayMenuPopup", ex);
+                Logger.Error($"Failed to render tray menu: {ex.Message}");
+            }
+
+            if (menu.RenderedRowCount == 0)
+            {
+                Logger.Error("Tray menu rendered zero rows; rebuilding with the fallback menu");
+                menu.ClearItems();
+                RenderTrayMenuPopup(menu, TrayMenuPresenter.Fallback());
+            }
+
+            if (menu.RenderedRowCount == 0)
+            {
+                // Never open an empty popup; the next right-click retries.
+                Logger.Error("Tray menu fallback produced zero rows; skipping popup");
+                return;
+            }
+
             menu.ShowAtCursor();
         }
         catch (Exception ex)
@@ -206,10 +233,24 @@ internal sealed class TrayController : ITrayController
         }
     }
 
-    private void BuildTrayMenuPopup(TrayMenuWindow menu)
+    private TrayMenuPresentation BuildTrayMenuPresentation()
     {
-        var snapshot = _callbacks.CaptureMenuSnapshot();
-        var presentation = new TrayMenuPresenter(snapshot).Present();
+        try
+        {
+            var snapshot = _callbacks.CaptureMenuSnapshot();
+            var presentation = new TrayMenuPresenter(snapshot).Present();
+            return presentation.Items.IsEmpty ? TrayMenuPresenter.Fallback() : presentation;
+        }
+        catch (Exception ex)
+        {
+            _callbacks.LogCrash("CaptureTrayMenuSnapshot", ex);
+            Logger.Error($"Tray menu snapshot failed, using the fallback menu: {ex.Message}");
+            return TrayMenuPresenter.Fallback();
+        }
+    }
+
+    private void RenderTrayMenuPopup(TrayMenuWindow menu, TrayMenuPresentation presentation)
+    {
         var callbacks = new TrayMenuCallbacks(
             DispatchAction: _callbacks.DispatchMenuAction,
             TrackConnectionToggle: toggle => _connectionToggleRef = new WeakReference<ToggleSwitch>(toggle),

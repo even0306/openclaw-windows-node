@@ -31,50 +31,63 @@ internal sealed class TrayMenuRenderer
     {
         foreach (var item in _presentation.Items)
         {
-            switch (item.Kind)
+            try
             {
-                case TrayMenuElementKind.BrandHeader:
-                    menu.AddCustomElement(BuildBrandHeader(menu, item));
-                    break;
-                case TrayMenuElementKind.DashboardGlance:
-                    menu.AddCustomElement(BuildDashboardGlance(item));
-                    break;
-                case TrayMenuElementKind.GatewayCard:
-                    menu.AddFlyoutCustomItem(
-                        BuildGatewayCard(item),
-                        BuildFlyoutItems(item.Children, item.Kind),
-                        item.ActionId);
-                    break;
-                case TrayMenuElementKind.DeviceCard:
-                    menu.AddFlyoutCustomItem(
-                        BuildDeviceCard(item),
-                        BuildFlyoutItems(item.Children, item.Kind),
-                        item.ActionId);
-                    break;
-                case TrayMenuElementKind.SessionsSummary:
-                case TrayMenuElementKind.UsageSummary:
-                    menu.AddFlyoutCustomItem(
-                        BuildSummaryRow(item),
-                        BuildFlyoutItems(item.Children, item.Kind),
-                        item.ActionId);
-                    break;
-                case TrayMenuElementKind.Flyout:
-                    menu.AddFlyoutMenuItem(
-                        item.Text,
-                        BuildIcon(item.Icon),
-                        BuildFlyoutItems(item.Children, item.Kind),
-                        action: item.ActionId);
-                    break;
-                case TrayMenuElementKind.Action:
-                    if (item.Accelerator is null)
-                        menu.AddMenuItem(item.Text, BuildIcon(item.Icon), item.ActionId ?? "");
-                    else
-                        menu.AddMenuItemWithHint(item.Text, BuildIcon(item.Icon), item.ActionId ?? "", item.Accelerator);
-                    break;
-                case TrayMenuElementKind.Separator:
-                    menu.AddSeparator();
-                    break;
+                RenderItem(menu, item);
             }
+            catch (Exception ex)
+            {
+                // One broken row must not abort the rest of the menu build.
+                Logger.Warn($"Tray menu row '{item.Kind}' failed to build: {ex.Message}");
+            }
+        }
+    }
+
+    private void RenderItem(TrayMenuWindow menu, TrayMenuElement item)
+    {
+        switch (item.Kind)
+        {
+            case TrayMenuElementKind.BrandHeader:
+                menu.AddCustomElement(BuildBrandHeader(menu, item));
+                break;
+            case TrayMenuElementKind.DashboardGlance:
+                menu.AddCustomElement(BuildDashboardGlance(item));
+                break;
+            case TrayMenuElementKind.GatewayCard:
+                menu.AddFlyoutCustomItem(
+                    BuildGatewayCard(item),
+                    BuildFlyoutItems(item.Children, item.Kind),
+                    item.ActionId);
+                break;
+            case TrayMenuElementKind.DeviceCard:
+                menu.AddFlyoutCustomItem(
+                    BuildDeviceCard(item),
+                    BuildFlyoutItems(item.Children, item.Kind),
+                    item.ActionId);
+                break;
+            case TrayMenuElementKind.SessionsSummary:
+            case TrayMenuElementKind.UsageSummary:
+                menu.AddFlyoutCustomItem(
+                    BuildSummaryRow(item),
+                    BuildFlyoutItems(item.Children, item.Kind),
+                    item.ActionId);
+                break;
+            case TrayMenuElementKind.Flyout:
+                menu.AddFlyoutMenuItem(
+                    item.Text,
+                    BuildIcon(item.Icon),
+                    BuildFlyoutItems(item.Children, item.Kind),
+                    action: item.ActionId);
+                break;
+            case TrayMenuElementKind.Action:
+                if (item.Accelerator is null)
+                    menu.AddMenuItem(item.Text, BuildIcon(item.Icon), item.ActionId ?? "");
+                else
+                    menu.AddMenuItemWithHint(item.Text, BuildIcon(item.Icon), item.ActionId ?? "", item.Accelerator);
+                break;
+            case TrayMenuElementKind.Separator:
+                menu.AddSeparator();
+                break;
         }
     }
 

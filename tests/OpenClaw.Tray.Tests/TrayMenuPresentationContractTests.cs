@@ -54,6 +54,20 @@ public sealed class TrayMenuPresentationContractTests
         Assert.Contains("OnActivated", window);
     }
 
+    [Fact]
+    public void EmptyMenuGuards_ExistInRendererAndController()
+    {
+        var renderer = Read("src", "OpenClaw.Tray.WinUI", "Services", "TrayMenuRenderer.cs");
+        var controller = Read("src", "OpenClaw.Tray.WinUI", "Services", "TrayController.cs");
+        var window = Read("src", "OpenClaw.Tray.WinUI", "Windows", "TrayMenuWindow.xaml.cs");
+
+        // Per-row isolation: one broken row must not abort the rest of the menu.
+        Assert.Contains("catch (Exception", renderer, StringComparison.Ordinal);
+        // Never-empty guarantee: the popup is rebuilt with the fallback menu.
+        Assert.Contains("RenderedRowCount", window, StringComparison.Ordinal);
+        Assert.Contains("TrayMenuPresenter.Fallback()", controller, StringComparison.Ordinal);
+    }
+
     private static string Read(params string[] parts) =>
         File.ReadAllText(Path.Combine(new[] { TestRepositoryPaths.GetRepositoryRoot() }.Concat(parts).ToArray()));
 }

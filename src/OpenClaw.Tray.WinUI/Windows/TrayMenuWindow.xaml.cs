@@ -941,6 +941,9 @@ public sealed partial class TrayMenuWindow : WindowEx
         _headerCount = 0;
     }
 
+    /// <summary>Rows currently built into the popup, including custom elements.</summary>
+    public int RenderedRowCount => MenuPanel.Children.Count;
+
     public void HideCascade()
     {
         HideActiveFlyout();
