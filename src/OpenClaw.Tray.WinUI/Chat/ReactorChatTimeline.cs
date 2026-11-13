@@ -58,7 +58,6 @@ public sealed class ReactorChatTimeline : Component<ReactorChatTimelineProps>
         var (hoveredEntryKey, setHoveredEntryKey) = UseState<string?>(null, threadSafe: true);
         // Enter and exit can both arrive before the preceding state update renders.
         var hoverTarget = UseRef<string?>(null);
-        var hoverCommitVersion = UseRef(0);
         var (focusedEntryKey, setFocusedEntryKey) = UseState<string?>(null);
         var (viewportWidth, setViewportWidth) = UseState(800d);
         var (atTail, setAtTail) = UseState(true);
@@ -188,16 +187,6 @@ public sealed class ReactorChatTimeline : Component<ReactorChatTimelineProps>
         var contentRevision = props.Timeline.Entries;
         if (atTail)
             lastReadTail.Current = contentRevision;
-        // Rows stream under a still pointer while scrolling, so per-flip hover
-        // commits re-render the whole timeline and jank the scroll. Debounce the
-        // shared hover state to a quiet frame; the enter/exit dedupe above still
-        // tracks the live target.
-        async Task CommitHoverAsync(int version)
-        {
-            await Task.Delay(80);
-            if (mounted.Current && version == hoverCommitVersion.Current)
-                setHoveredEntryKey(hoverTarget.Current);
-        }
         void SetEntryHovered(string entryKey, bool isHovered)
         {
             if (isHovered)
@@ -205,13 +194,13 @@ public sealed class ReactorChatTimeline : Component<ReactorChatTimelineProps>
                 if (!string.Equals(hoverTarget.Current, entryKey, StringComparison.Ordinal))
                 {
                     hoverTarget.Current = entryKey;
-                    _ = CommitHoverAsync(++hoverCommitVersion.Current);
+                    setHoveredEntryKey(entryKey);
                 }
             }
             else if (string.Equals(hoverTarget.Current, entryKey, StringComparison.Ordinal))
             {
                 hoverTarget.Current = null;
-                _ = CommitHoverAsync(++hoverCommitVersion.Current);
+                setHoveredEntryKey(null);
             }
         }
 

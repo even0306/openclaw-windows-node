@@ -551,10 +551,6 @@ file sealed class InitialTailPositioner : IDisposable
         _scrollView = nextScrollView;
         if (_scrollView is not null)
         {
-            // Realize rows ahead of the viewport so scrolling does not build
-            // complex markdown rows on the hot path.
-            if (_scrollView.Content is Microsoft.UI.Xaml.Controls.ItemsRepeater cacheRepeater)
-                cacheRepeater.VerticalCacheLength = 3;
             _scrollView.VerticalAnchorRatio = 1.0;
             _scrollView.ViewChanged += OnViewChanged;
             _scrollView.StateChanged += OnScrollStateChanged;
@@ -737,10 +733,10 @@ file sealed class InitialTailPositioner : IDisposable
         _offsetCorrectionAnchorRequested = null;
     }
 
-    // A reader scrolling away from the tail must not fight ANY scroll anchoring:
-    // virtualized remeasures adjust the offset, which lags the thumb behind the
-    // pointer and makes the scrollbar jitter. Anchoring (bottom glue) only
-    // resumes once the viewport is back on the tail.
+    // A reader scrolling away from the tail must not fight the bottom anchor:
+    // virtualized remeasures would pull the offset back down, lag the thumb
+    // behind the pointer and make the page jump. Anchoring only resumes once
+    // the viewport is glued to the tail again.
     private void SuppressTailAnchor(WinUIScrollView scrollView)
     {
         if (_tailAnchorSuppressed || _disclosureAnchored || _readerAnchored
@@ -748,7 +744,7 @@ file sealed class InitialTailPositioner : IDisposable
             return;
 
         _tailAnchorSuppressed = true;
-        scrollView.VerticalAnchorRatio = double.NaN;
+        scrollView.VerticalAnchorRatio = 0;
     }
 
     private void RestoreTailAnchorAtTail(WinUIScrollView scrollView)
