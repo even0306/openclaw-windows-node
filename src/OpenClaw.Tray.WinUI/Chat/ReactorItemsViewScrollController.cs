@@ -7,13 +7,15 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.Foundation;
+using WinUIAnnotatedScrollBar = Microsoft.UI.Xaml.Controls.AnnotatedScrollBar;
 using WinUIItemsView = Microsoft.UI.Xaml.Controls.ItemsView;
 using WinUIScrollView = Microsoft.UI.Xaml.Controls.ScrollView;
 
 namespace OpenClawTray.Chat;
 
-file sealed record ItemsViewTailPositionerElement(
+file sealed record ItemsViewVerticalScrollControllerElement(
     Element Child,
+    ElementRef<WinUIAnnotatedScrollBar> ScrollBarRef,
     int InitialTailIndex,
     int ItemCount,
     int JumpRevision,
@@ -21,35 +23,38 @@ file sealed record ItemsViewTailPositionerElement(
     string? DisplayedTailKey,
     Action<bool>? TailVisibilityChanged) : Element
 {
-    static ItemsViewTailPositionerElement() =>
-        ControlRegistry.RegisterDecorator<ItemsViewTailPositionerElement>(
-            static () => new ItemsViewTailPositionerHandler());
+    static ItemsViewVerticalScrollControllerElement() =>
+        ControlRegistry.RegisterDecorator<ItemsViewVerticalScrollControllerElement>(
+            static () => new ItemsViewVerticalScrollControllerHandler());
 }
 
-file sealed class ItemsViewTailPositionerHandler
-    : IDecoratorElementHandler<ItemsViewTailPositionerElement>
+file sealed class ItemsViewVerticalScrollControllerHandler
+    : IDecoratorElementHandler<ItemsViewVerticalScrollControllerElement>
 {
     // Keep ownership on the native control, not on a particular managed projection.
     private static readonly DependencyProperty PositionerProperty = DependencyProperty.RegisterAttached(
-        "ChatTailPositioner", typeof(object), typeof(ItemsViewTailPositionerHandler), new PropertyMetadata(null));
+        "ChatTailPositioner", typeof(object), typeof(ItemsViewVerticalScrollControllerHandler), new PropertyMetadata(null));
 
-    public UIElement Mount(MountContext context, ItemsViewTailPositionerElement element)
+    public UIElement Mount(MountContext context, ItemsViewVerticalScrollControllerElement element)
     {
         var control = context.MountChild(element.Child);
         if (control is not WinUIItemsView itemsView)
-            throw new InvalidOperationException("ItemsView tail positioner requires an ItemsView child.");
+            throw new InvalidOperationException("ItemsView scroll controller binding requires an ItemsView child.");
 
-        BindPositioner(itemsView, element);
+        BindPositioner(itemsView, element, context.BindFor(itemsView, element));
         return itemsView;
     }
 
     private static InitialTailPositioner BindPositioner(
         WinUIItemsView itemsView,
-        ItemsViewTailPositionerElement element)
+        ItemsViewVerticalScrollControllerElement element,
+        ReactorBinding<ItemsViewVerticalScrollControllerElement> binding)
     {
         (itemsView.GetValue(PositionerProperty) as InitialTailPositioner)?.Dispose();
-        // The ItemsView keeps its built-in ScrollView scrollbar: a proportional,
-        // draggable WinUI ScrollBar. No external scroll controller replaces it.
+        binding.Reference(
+            get: static value => value.ScrollBarRef,
+            set: static (value, scrollBar) =>
+                ((WinUIItemsView)value).VerticalScrollController = scrollBar?.ScrollController);
         var positioner = new InitialTailPositioner(itemsView);
         positioner.TailVisibilityChanged = element.TailVisibilityChanged;
         itemsView.SetValue(PositionerProperty, positioner);
@@ -64,14 +69,14 @@ file sealed class ItemsViewTailPositionerHandler
 
     public UIElement Update(
         UpdateContext context,
-        ItemsViewTailPositionerElement oldElement,
-        ItemsViewTailPositionerElement newElement,
+        ItemsViewVerticalScrollControllerElement oldElement,
+        ItemsViewVerticalScrollControllerElement newElement,
         UIElement control)
     {
         var previousPositioner = control.GetValue(PositionerProperty) as InitialTailPositioner;
         var updated = context.ReconcileChild(oldElement.Child, newElement.Child, control);
         if (updated is not WinUIItemsView itemsView)
-            throw new InvalidOperationException("ItemsView tail positioner requires an ItemsView child.");
+            throw new InvalidOperationException("ItemsView scroll controller binding requires an ItemsView child.");
         var positioner = itemsView.GetValue(PositionerProperty) as InitialTailPositioner;
         if (previousPositioner is not null && !ReferenceEquals(previousPositioner, positioner))
         {
@@ -80,7 +85,7 @@ file sealed class ItemsViewTailPositionerHandler
             previousPositioner.Dispose();
         }
         if (positioner is null)
-            BindPositioner(itemsView, newElement);
+            BindPositioner(itemsView, newElement, context.BindFor(itemsView, newElement));
         else
         {
             positioner.TailVisibilityChanged = newElement.TailVisibilityChanged;
@@ -100,7 +105,7 @@ file sealed class ItemsViewTailPositionerHandler
         return itemsView;
     }
 
-    public V1UnmountDisposition Unmount(UnmountContext context, ItemsViewTailPositionerElement? element, UIElement control)
+    public V1UnmountDisposition Unmount(UnmountContext context, ItemsViewVerticalScrollControllerElement? element, UIElement control)
     {
         if (control.GetValue(PositionerProperty) is InitialTailPositioner positioner)
         {
@@ -136,8 +141,6 @@ file sealed class InitialTailPositioner : IDisposable
     private readonly TypedEventHandler<UIElement, GettingFocusEventArgs> _readerGettingFocus;
     private bool _disclosureAnchored;
     private bool _readerAnchored;
-    private bool _tailAnchorSuppressed;
-    private bool _mouseScrolling;
     private int? _readerBringCorrelationId;
     private TypedEventHandler<WinUIScrollView, ScrollingAnchorRequestedEventArgs>? _offsetCorrectionAnchorRequested;
     private bool _awaitingIdle;
@@ -236,7 +239,7 @@ file sealed class InitialTailPositioner : IDisposable
             return;
         }
 
-        if (changed && itemsView.IsLoaded && !_mouseScrolling
+        if (changed && itemsView.IsLoaded
             && TailNavigationPolicy.CanFollowTail(_following, _initialPending))
         {
             QueueTailRequest(_version, request);
@@ -667,18 +670,12 @@ file sealed class InitialTailPositioner : IDisposable
     private void OnScrollStateChanged(WinUIScrollView sender, object args)
     {
         if (sender.State == ScrollingInteractionState.Interaction)
-        {
             CancelPendingNavigation();
-            SuppressTailAnchor(sender);
-        }
         else if (_awaitingIdle && sender.State == ScrollingInteractionState.Idle)
         {
             _awaitingIdle = false;
             AwaitLayout(renderAfterLayout: true);
         }
-
-        if (sender.State == ScrollingInteractionState.Idle)
-            RestoreTailAnchorAtTail(sender);
     }
 
     private void OnNavigationKeyDown(object sender, KeyRoutedEventArgs args) =>
@@ -697,8 +694,6 @@ file sealed class InitialTailPositioner : IDisposable
             _disclosureAnchored = true;
             scrollView.VerticalAnchorRatio = 0;
         }
-        else if (_scrollView is { } reading && !IsAtBottom(reading))
-            SuppressTailAnchor(reading);
     }
 
     private bool IsDisclosureHeader(object? source)
@@ -717,11 +712,9 @@ file sealed class InitialTailPositioner : IDisposable
     private void RestoreTailAnchor()
     {
         _readerBringCorrelationId = null;
-        if (!_disclosureAnchored && !_readerAnchored && _offsetCorrectionAnchorRequested is null
-            && !_tailAnchorSuppressed)
+        if (!_disclosureAnchored && !_readerAnchored && _offsetCorrectionAnchorRequested is null)
             return;
 
-        _tailAnchorSuppressed = false;
         _disclosureAnchored = false;
         _readerAnchored = false;
         if (_scrollView is not null)
@@ -733,26 +726,6 @@ file sealed class InitialTailPositioner : IDisposable
         _offsetCorrectionAnchorRequested = null;
     }
 
-    // A reader scrolling away from the tail must not fight the bottom anchor:
-    // virtualized remeasures would pull the offset back down, lag the thumb
-    // behind the pointer and make the page jump. Anchoring only resumes once
-    // the viewport is glued to the tail again.
-    private void SuppressTailAnchor(WinUIScrollView scrollView)
-    {
-        if (_tailAnchorSuppressed || _disclosureAnchored || _readerAnchored
-            || _offsetCorrectionAnchorRequested is not null)
-            return;
-
-        _tailAnchorSuppressed = true;
-        scrollView.VerticalAnchorRatio = 0;
-    }
-
-    private void RestoreTailAnchorAtTail(WinUIScrollView scrollView)
-    {
-        if (_tailAnchorSuppressed && _readerBringCorrelationId is null && IsAtBottom(scrollView))
-            RestoreTailAnchor();
-    }
-
     private void OnReaderFocus(UIElement sender, GettingFocusEventArgs args)
     {
         if (args.FocusState == FocusState.Keyboard)
@@ -762,18 +735,8 @@ file sealed class InitialTailPositioner : IDisposable
     private void OnControllerMouseChanged(
         Microsoft.UI.Xaml.Controls.Primitives.IScrollController sender, object args)
     {
-        _mouseScrolling = sender.IsScrollingWithMouse;
         if (sender.IsScrollingWithMouse)
             CancelPendingNavigation();
-        if (_scrollView is not { } scrollView)
-            return;
-
-        if (sender.IsScrollingWithMouse)
-            SuppressTailAnchor(scrollView);
-        else if (IsAtBottom(scrollView))
-            RestoreTailAnchorAtTail(scrollView);
-        else
-            SuppressTailAnchor(scrollView);
     }
 
     private void CancelPendingNavigation()
@@ -824,7 +787,6 @@ file sealed class InitialTailPositioner : IDisposable
                 || _disposed
                 || !_valid
                 || !itemsView.IsLoaded
-                || _mouseScrolling
                 || !TailNavigationPolicy.CanFollowTail(_following, _initialPending))
             {
                 return;
@@ -1016,8 +978,6 @@ file sealed class InitialTailPositioner : IDisposable
         _scrollView = null;
         _disclosureAnchored = false;
         _readerAnchored = false;
-        _tailAnchorSuppressed = false;
-        _mouseScrolling = false;
         _readerBringCorrelationId = null;
         _offsetCorrectionAnchorRequested = null;
         _reportedAtTail = null;
@@ -1048,16 +1008,18 @@ file sealed class InitialTailPositioner : IDisposable
 
 internal static class ItemsViewScrollControllerExtensions
 {
-    public static Element BindTailPositioner<T>(
+    public static Element BindVerticalScrollController<T>(
         this ItemsViewElement<T> itemsView,
+        ElementRef<WinUIAnnotatedScrollBar> scrollBarRef,
         int initialTailIndex,
         int itemCount,
         int jumpRevision,
         string initialTailRequestKey,
         string? displayedTailKey,
         Action<bool>? tailVisibilityChanged = null) =>
-        new ItemsViewTailPositionerElement(
+        new ItemsViewVerticalScrollControllerElement(
             itemsView,
+            scrollBarRef,
             initialTailIndex,
             itemCount,
             jumpRevision,

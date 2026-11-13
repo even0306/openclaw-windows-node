@@ -47,7 +47,7 @@ public sealed class ChatTimelinePresentationTests
     }
 
     [Fact]
-    public void ReactorTimeline_UsesNonSelectableItemsViewContainersAndNativeScrollViewScrollBar()
+    public void ReactorTimeline_UsesNonSelectableItemsViewContainersAndAnnotatedScrollBar()
     {
         var timeline = File.ReadAllText(Path.Combine(
             TestRepositoryPaths.GetRepositoryRoot(),
@@ -69,12 +69,9 @@ public sealed class ChatTimelinePresentationTests
         Assert.Contains("ItemContainerSelectedPointerOverBackground", timeline);
         Assert.Contains("ItemContainerSelectedPressedBackground", timeline);
         Assert.Contains("ItemContainerSelectionVisualPointerOverBackground", timeline);
-        // The conversation keeps the ItemsView's built-in ScrollView scrollbar
-        // (proportional, draggable thumb that reaches the ends). No external
-        // AnnotatedScrollBar replaces it.
-        Assert.DoesNotContain("AnnotatedScrollBar", timeline);
-        Assert.DoesNotContain("VerticalScrollController", timeline);
-        Assert.Contains(".BindTailPositioner(", timeline);
+        Assert.Contains("AnnotatedScrollBar()", timeline);
+        Assert.Contains(".BindVerticalScrollController(", timeline);
+        Assert.Contains("annotatedScrollBarRef,", timeline);
         Assert.Contains("rows.Count - 1", timeline);
         Assert.Contains("rows.Count,", timeline);
         Assert.Contains("jumpRevision,", timeline);
@@ -85,7 +82,7 @@ public sealed class ChatTimelinePresentationTests
     }
 
     [Fact]
-    public void ReactorTimeline_UsesReactiveTailPositionerWithoutExternalScrollControllerBinding()
+    public void ReactorTimeline_UsesReactiveAnnotatedScrollBarControllerBinding()
     {
         var binding = File.ReadAllText(Path.Combine(
             TestRepositoryPaths.GetRepositoryRoot(),
@@ -94,12 +91,9 @@ public sealed class ChatTimelinePresentationTests
             "Chat",
             "ReactorItemsViewScrollController.cs"));
 
-        // The tail positioner decorates the ItemsView without replacing the
-        // built-in ScrollView scrollbar through an external scroll controller.
-        Assert.DoesNotContain("binding.Reference(", binding);
-        Assert.DoesNotContain("ScrollBarRef", binding);
-        Assert.DoesNotContain(".ScrollController", binding);
-        Assert.Contains("BindPositioner(itemsView, newElement)", binding);
+        Assert.Contains("context.BindFor(itemsView, element)", binding);
+        Assert.Contains("binding.Reference(", binding);
+        Assert.Contains("VerticalScrollController = scrollBar?.ScrollController", binding);
         Assert.Contains("explicitJump: false", binding);
         Assert.Contains("oldElement.JumpRevision != newElement.JumpRevision", binding);
         Assert.DoesNotContain(".Current", binding);
@@ -237,54 +231,6 @@ public sealed class ChatTimelinePresentationTests
         var detach = binding[binding.IndexOf("private void DetachScrollView()", StringComparison.Ordinal)..
             binding.IndexOf("public void Dispose()", binding.IndexOf("private void DetachScrollView()", StringComparison.Ordinal), StringComparison.Ordinal)];
         Assert.Contains("_readerBringCorrelationId = null;", detach);
-    }
-
-    [Fact]
-    public void ReactorTimeline_ReaderScrollingSuppressesTheTailAnchorUntilTheTailReturns()
-    {
-        var binding = File.ReadAllText(Path.Combine(
-            TestRepositoryPaths.GetRepositoryRoot(),
-            "src",
-            "OpenClaw.Tray.WinUI",
-            "Chat",
-            "ReactorItemsViewScrollController.cs"));
-        string Slice(string start, string end)
-        {
-            var from = binding.IndexOf(start, StringComparison.Ordinal);
-            var to = binding.IndexOf(end, from, StringComparison.Ordinal);
-            Assert.True(from >= 0 && to > from, $"Missing {start}..{end}");
-            return binding[from..to];
-        }
-
-        // A scrollbar drag or reader scrolling away from the tail suppresses the
-        // bottom anchor so virtualized remeasures cannot pull the offset back
-        // down, lag the thumb behind the pointer or make the page jump.
-        Assert.Contains("private bool _tailAnchorSuppressed;", binding);
-        Assert.Contains("private bool _mouseScrolling;", binding);
-        Assert.Contains("SuppressTailAnchor(", binding);
-        Assert.Contains("RestoreTailAnchorAtTail(", binding);
-
-        var mouse = Slice("private void OnControllerMouseChanged", "private void CancelPendingNavigation");
-        Assert.Contains("if (sender.IsScrollingWithMouse)", mouse);
-        Assert.Contains("SuppressTailAnchor(scrollView);", mouse);
-        Assert.Contains("RestoreTailAnchorAtTail(scrollView);", mouse);
-
-        var state = Slice("private void OnScrollStateChanged", "private void OnNavigationKeyDown");
-        Assert.Contains("SuppressTailAnchor(sender);", state);
-        Assert.Contains("RestoreTailAnchorAtTail(sender);", state);
-
-        // Tail-follow requests are dropped while the scrollbar is mouse-dragged.
-        Assert.Contains("&& !_mouseScrolling", binding);
-        Assert.Contains("|| _mouseScrolling", binding);
-
-        // Anchoring resumes only on the tail and the suppression is released
-        // with the rest of the anchor state.
-        var restore = Slice("private void RestoreTailAnchor()", "private void OnReaderFocus");
-        Assert.Contains("&& !_tailAnchorSuppressed)", restore);
-        Assert.Contains("_tailAnchorSuppressed = false;", restore);
-        var detach = Slice("private void DetachScrollView", "public void Dispose");
-        Assert.Contains("_tailAnchorSuppressed = false;", detach);
-        Assert.Contains("_mouseScrolling = false;", detach);
     }
 
     [Fact]
